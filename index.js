@@ -48,6 +48,30 @@ const verificarToken = (req, res, next) => {
   }
 };
 
+// --- MIDDLEWARE: SEGURIDAD MÁQUINA A MÁQUINA (API KEYS) ---
+const verificarApiKey = async (req, res, next) => {
+  const apiKey = req.header('x-api-key'); // Las empresas enviarán su llave aquí
+  
+  if (!apiKey) {
+    return res.status(401).json({ error: 'Acceso denegado. Falta la API Key corporativa.' });
+  }
+
+  try {
+    // Buscamos en la base de datos a qué empresa le pertenece esta llave
+    const comercio = await prisma.comercio.findFirst({ where: { api_key: apiKey } });
+    
+    if (!comercio) {
+      return res.status(401).json({ error: 'API Key inválida o revocada.' });
+    }
+
+    // Si la llave es real, lo dejamos pasar y anotamos quién es
+    req.comercioId = comercio.id; 
+    next();
+  } catch (error) {
+    res.status(500).json({ error: 'Error validando credenciales de seguridad.' });
+  }
+};
+
 
 // ==========================================
 //           RUTAS DE AUTENTICACIÓN
@@ -122,16 +146,17 @@ app.post('/api/login', async (req, res) => {
 //           RUTAS DE PAGOS (CORE)
 // ==========================================
 
-// 3. Procesar un nuevo pago (Checkout) + WEBHOOK
-app.post('/api/pagos/procesar', async (req, res) => {
+// 3. Procesar un nuevo pago (Checkout) + WEBHOOK + API KEY SECURITY
+app.post('/api/pagos/procesar', verificarApiKey, async (req, res) => {
   try {
-    const { comercioId, monto, moneda, metodo, referencia } = req.body;
+    const { monto, moneda, metodo, referencia } = req.body;
+    const comercioIdReal = req.comercioId; // Lo sacamos del guardia de seguridad, es inhackeable
 
-    if (!comercioId || !monto || !moneda || !metodo) {
+    if (!monto || !moneda || !metodo) {
       return res.status(400).json({ error: 'Faltan datos requeridos para procesar el pago.' });
     }
 
-    // A. Guardamos el pago en la base de datos
+    // Guardamos el pago
     const nuevaTransaccion = await prisma.transaccion.create({
       data: {
         monto: monto,
@@ -139,16 +164,13 @@ app.post('/api/pagos/procesar', async (req, res) => {
         metodo: metodo,
         referencia: referencia || null, 
         estado: 'aprobado', 
-        comercioId: comercioId 
+        comercioId: comercioIdReal // Usamos el ID seguro
       }
     });
 
-    // B. ---> INICIO DEL WEBHOOK (Mensajero a la tienda) <---
-    // Intentamos avisarle a la tienda sin bloquear la respuesta al cliente
+    // WEBHOOK (Mensajero a la tienda)
     try {
       const urlDeLaTienda = "https://webhook.site/d6516949-e184-47e0-b956-860349345c68"; 
-      
-      // Enviamos la petición POST a la tienda
       fetch(urlDeLaTienda, {
         method: 'POST',
         headers: { 
@@ -161,23 +183,15 @@ app.post('/api/pagos/procesar', async (req, res) => {
             id_transaccion: nuevaTransaccion.id,
             monto: nuevaTransaccion.monto,
             referencia_cliente: nuevaTransaccion.referencia,
-            fecha: nuevaTransaccion.fecha, // Usamos 'fecha' porque así está en tu esquema
             estado: nuevaTransaccion.estado
           }
         })
       }).catch(err => console.error("Error silencioso del Webhook:", err)); 
-      // Usamos .catch en lugar de await para que el cliente no tenga que esperar a que la tienda responda
-      
     } catch (errorWebhook) {
       console.error("Fallo al preparar el Webhook:", errorWebhook);
     }
-    // ---> FIN DEL WEBHOOK <---
 
-    // C. Respondemos al cliente con el recibo de éxito
-    res.status(201).json({
-      mensaje: 'Pago procesado exitosamente',
-      recibo: nuevaTransaccion.id
-    });
+    res.status(201).json({ mensaje: 'Pago procesado exitosamente', recibo: nuevaTransaccion.id });
 
   } catch (error) {
     console.error(error);
