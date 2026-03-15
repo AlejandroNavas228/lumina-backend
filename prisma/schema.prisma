@@ -1,0 +1,37 @@
+// 1. Configuraciones base
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 2. Tabla de Comercios (Ej. Zahara Store)
+model Comercio {
+  id            String        @id @default(uuid())
+  nombre        String
+  email         String        @unique
+  password      String
+  api_key       String?       @unique // Esta llave servirá en el futuro para conectar la tienda
+  createdAt     DateTime      @default(now())
+  
+  // Relación: Un comercio puede tener muchas transacciones
+  transacciones Transaccion[]
+}
+
+// 3. Tabla de Transacciones (Los pagos que hacen los clientes)
+model Transaccion {
+  id          String   @id @default(uuid())
+  referencia  String?  // Ej: Los últimos 6 dígitos del pago móvil
+  monto       Decimal  @db.Decimal(10, 2)
+  moneda      String   // "USD" o "VES"
+  metodo      String   // "pago_movil" o "tarjeta"
+  estado      String   @default("pendiente") // "pendiente", "aprobado", "rechazado"
+  fecha       DateTime @default(now())
+  
+  // Relación: A qué comercio le pertenece este dinero
+  comercioId  String
+  comercio    Comercio @relation(fields: [comercioId], references: [id])
+}
