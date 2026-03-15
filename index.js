@@ -10,7 +10,26 @@ const app = express();
 const prisma = new PrismaClient(); 
 const PORT = 3000;
 
-app.use(cors());
+// --- ESCUDO DE SEGURIDAD CORS ---
+const dominiosPermitidos = [
+  'https://pay-saas-frontend.vercel.app', // Tu pasarela oficial en vivo
+  'http://localhost:5173'                 // Tu PC local (para que puedas seguir programando sin bloquearte a ti mismo)
+];
+
+const opcionesCors = {
+  origin: function (origin, callback) {
+    // Permitir si viene de la lista VIP, o si no tiene origen (ej. peticiones internas del servidor)
+    if (!origin || dominiosPermitidos.includes(origin)) {
+      callback(null, true);
+    } else {
+      // Si un dominio extraño intenta entrar, lo rebotamos
+      callback(new Error('Acceso denegado: Bloqueado por el escudo CORS de Lumina'));
+    }
+  }
+};
+
+app.use(cors(opcionesCors));
+// ---------------------------------
 app.use(express.json());
 
 // --- MIDDLEWARES (Seguridad) ---
