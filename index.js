@@ -148,57 +148,40 @@ app.post('/api/login', async (req, res) => {
 
 // 3. Procesar un nuevo pago (Checkout) + WEBHOOK + API KEY SECURITY
 app.post('/api/pagos/procesar', verificarApiKey, async (req, res) => {
-  try {
-    const { monto, moneda, metodo, referencia } = req.body;
-    const comercioIdReal = req.comercioId; // Lo sacamos del guardia de seguridad, es inhackeable
-
-    if (!monto || !moneda || !metodo) {
-      return res.status(400).json({ error: 'Faltan datos requeridos para procesar el pago.' });
-    }
-
-    // Guardamos el pago
-    const nuevaTransaccion = await prisma.transaccion.create({
-      data: {
-        monto: monto,
-        moneda: moneda,
-        metodo: metodo,
-        referencia: referencia || null, 
-        estado: 'aprobado', 
-        comercioId: comercioIdReal // Usamos el ID seguro
-      }
-    });
-
-    // WEBHOOK (Mensajero a la tienda)
+  // B. ---> INICIO DEL WEBHOOK DINÁMICO <---
     try {
-      const urlDeLaTienda = "https://webhook.site/d6516949-e184-47e0-b956-860349345c68"; 
-      fetch(urlDeLaTienda, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer lumina-secret-123'
-        },
-        body: JSON.stringify({
-          evento: 'pago_exitoso',
-          data: {
-            id_transaccion: nuevaTransaccion.id,
-            monto: nuevaTransaccion.monto,
-            referencia_cliente: nuevaTransaccion.referencia,
-            estado: nuevaTransaccion.estado
-          }
-        })
-      }).catch(err => console.error("Error silencioso del Webhook:", err)); 
+      // 1. Buscamos al comercio en la base de datos para ver si tiene un webhook guardado
+      const comercio = await prisma.comercio.findUnique({ 
+        where: { id: comercioIdReal } 
+      });
+
+      // 2. Si el comercio configuró una URL, le enviamos el aviso
+      if (comercio.url_webhook) {
+        fetch(comercio.url_webhook, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${comercio.api_key}` // Usamos su propia llave como seguridad
+          },
+          body: JSON.stringify({
+            evento: 'pago_exitoso',
+            data: {
+              id_transaccion: nuevaTransaccion.id,
+              monto: nuevaTransaccion.monto,
+              referencia_cliente: nuevaTransaccion.referencia,
+              estado: nuevaTransaccion.estado
+            }
+          })
+        }).catch(err => console.error("Error enviando el Webhook:", err)); 
+      } else {
+        console.log(`El comercio ${comercio.nombre} no tiene Webhook configurado. Mensaje omitido.`);
+      }
     } catch (errorWebhook) {
       console.error("Fallo al preparar el Webhook:", errorWebhook);
     }
-
-    res.status(201).json({ mensaje: 'Pago procesado exitosamente', recibo: nuevaTransaccion.id });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Hubo un error crítico al procesar el pago.' });
-  }
 });
 
+    
 // 4. Obtener historial de pagos (Dashboard)
 app.get('/api/pagos/:comercioId', verificarToken, async (req, res) => {
   try {
@@ -241,6 +224,27 @@ app.get('/api/comercio/:id', verificarToken, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al buscar la configuración.' });
+  }
+});
+
+// 6. Actualizar el Webhook del comercio
+app.put('/api/comercio/:id/webhook', verificarToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { url_webhook } = req.body;
+
+    const comercioActualizado = await prisma.comercio.update({
+      where: { id: id },
+      data: { url_webhook: url_webhook }
+    });
+
+    res.status(200).json({ 
+      mensaje: 'Webhook actualizado exitosamente', 
+      url_webhook: comercioActualizado.url_webhook 
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al actualizar el webhook en la base de datos.' });
   }
 });
 

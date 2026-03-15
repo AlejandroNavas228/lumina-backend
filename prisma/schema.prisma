@@ -14,6 +14,7 @@ model Comercio {
   nombre        String
   email         String        @unique
   password      String
+  url_webhook   String?
   api_key       String?       @unique // Esta llave servirá en el futuro para conectar la tienda
   createdAt     DateTime      @default(now())
   
