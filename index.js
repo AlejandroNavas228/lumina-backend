@@ -12,9 +12,9 @@ const PORT = 3000;
 
 // --- ESCUDO DE SEGURIDAD CORS ---
 const dominiosPermitidos = [
-  'https://pay-saas-frontend.vercel.app', 
-  'https://paysaas-frontend.vercel.app', // Agregamos esta por si Vercel le quitó el guion
-  'http://localhost:5173'
+  'https://pay-saas-frontend.vercel.app', // Tu dominio oficial principal
+  'https://pay-saas-frontend-git-main-alejandronavas228s-projects.vercel.app', // El enlace temporal de Vercel
+  'http://localhost:5173' // Tu computadora local
 ];
 
 const opcionesCors = {
@@ -22,7 +22,6 @@ const opcionesCors = {
     if (!origin || dominiosPermitidos.includes(origin)) {
       callback(null, true);
     } else {
-      // ¡EL CHIVATO! Esto nos dirá exactamente qué URL está bloqueando
       console.error(`🚨 CORS BLOQUEÓ ESTA URL EXACTA: "${origin}"`); 
       callback(new Error('Acceso denegado: Bloqueado por el escudo CORS de Lumina'));
     }
@@ -30,6 +29,7 @@ const opcionesCors = {
 };
 
 app.use(cors(opcionesCors));
+// ---------------------------------
 // ---------------------------------
 app.use(express.json());
 
