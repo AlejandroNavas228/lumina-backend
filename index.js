@@ -182,6 +182,61 @@ app.post('/api/pagos/procesar', verificarApiKey, async (req, res) => {
     }
 });
 
+// --- NUEVA RUTA: Procesar pagos desde Enlaces Públicos (Sin API Key) ---
+app.post('/api/pagos/enlace-publico', async (req, res) => {
+  try {
+    const { comercioId, monto, moneda, metodo, referencia } = req.body;
+
+    if (!comercioId || !monto) {
+      return res.status(400).json({ error: 'Faltan datos requeridos.' });
+    }
+
+    // 1. Guardamos el pago usando el ID del enlace
+    const nuevaTransaccion = await prisma.transaccion.create({
+      data: {
+        monto: monto,
+        moneda: moneda,
+        metodo: metodo,
+        referencia: referencia || null, 
+        estado: 'aprobado', 
+        comercioId: comercioId 
+      }
+    });
+
+    // 2. WEBHOOK: Avisamos a la tienda que el pago público fue un éxito
+    try {
+      const comercio = await prisma.comercio.findUnique({ where: { id: comercioId } });
+      
+      if (comercio && comercio.url_webhook) {
+        fetch(comercio.url_webhook, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${comercio.api_key}` // Lumina usa la llave del comercio para identificarse
+          },
+          body: JSON.stringify({
+            evento: 'pago_exitoso',
+            data: {
+              id_transaccion: nuevaTransaccion.id,
+              monto: nuevaTransaccion.monto,
+              referencia_cliente: nuevaTransaccion.referencia,
+              estado: nuevaTransaccion.estado
+            }
+          })
+        }).catch(err => console.error("Error silencioso del Webhook:", err)); 
+      }
+    } catch (errorWebhook) {
+      console.error("Fallo al preparar el Webhook:", errorWebhook);
+    }
+
+    res.status(201).json({ mensaje: 'Pago procesado exitosamente', recibo: nuevaTransaccion.id });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Hubo un error crítico al procesar el pago público.' });
+  }
+});
+
     
 // 4. Obtener historial de pagos (Dashboard)
 app.get('/api/pagos/:comercioId', verificarToken, async (req, res) => {
