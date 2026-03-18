@@ -8,19 +8,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 2. Tabla de Comercios (Ej. Zahara Store)
+// 2. Tabla de Comercios 
 model Comercio {
-  id            String        @id @default(uuid())
-  nombre        String
-  email         String        @unique
-  password      String
-  url_webhook   String?
-  api_key       String?       @unique // Esta llave servirá en el futuro para conectar la tienda
-  createdAt     DateTime      @default(now())
+  id                 String        @id @default(uuid())
+  nombre             String
+  email              String        @unique
+  password           String
+  api_key            String?       @unique
+  url_webhook        String?
+  verificado         Boolean       @default(false)
+  codigoVerificacion String?
+  createdAt          DateTime      @default(now())
   
-  // Relación: Un comercio puede tener muchas transacciones
-  transacciones Transaccion[]
+  // Relación con los pagos
+  transacciones      Transaccion[]
 }
+  
+ 
+
 
 // 3. Tabla de Transacciones (Los pagos que hacen los clientes)
 model Transaccion {

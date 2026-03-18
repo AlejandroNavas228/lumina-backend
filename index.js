@@ -1,3 +1,4 @@
+import nodemailer from 'nodemailer';
 import 'dotenv/config';
 import jwt from 'jsonwebtoken';
 import express from 'express';
@@ -9,6 +10,14 @@ import bcrypt from 'bcryptjs';
 const app = express();
 const prisma = new PrismaClient(); 
 const PORT = 3000;
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USUARIO,
+    pass: process.env.EMAIL_PASSWORD
+  }
+});
 
 // --- ESCUDO DE SEGURIDAD CORS ---
 const dominiosPermitidos = [
@@ -79,6 +88,7 @@ const verificarApiKey = async (req, res, next) => {
 // ==========================================
 
 // 1. Registro de Comercios
+// 1. Registro de Comercios (CON VERIFICACIÓN)
 app.post('/api/registro', async (req, res) => {
   try {
     const { comercio, email, password } = req.body;
@@ -91,22 +101,63 @@ app.post('/api/registro', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordEncriptada = await bcrypt.hash(password, salt);
 
+    // Generamos un código aleatorio de 6 dígitos
+    const codigoOTP = Math.floor(100000 + Math.random() * 900000).toString();
+
     const nuevoComercio = await prisma.comercio.create({
       data: {
         nombre: comercio,
         email: email,
         password: passwordEncriptada,
+        verificado: false,
+        codigoVerificacion: codigoOTP,
         api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
       }
     });
 
-    res.status(201).json({
-      mensaje: 'Comercio creado exitosamente',
-      comercio: { id: nuevoComercio.id, nombre: nuevoComercio.nombre, email: nuevoComercio.email }
+    // Enviamos el correo real
+    await transporter.sendMail({
+      from: `"Equipo Lumina Pay" <${process.env.EMAIL_USUARIO}>`,
+      to: email,
+      subject: '🛡️ Verifica tu cuenta en Lumina Pay',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #2563eb;">¡Bienvenido a Lumina, ${comercio}!</h2>
+          <p>Para activar tu bóveda financiera y empezar a procesar pagos, introduce este código de seguridad en tu panel:</p>
+          <div style="background-color: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #0f172a;">${codigoOTP}</span>
+          </div>
+          <p style="color: #64748b; font-size: 12px;">Si tú no solicitaste esta cuenta, ignora este correo.</p>
+        </div>
+      `
     });
+
+    res.status(201).json({ mensaje: 'Comercio creado. Revisa tu correo para verificar tu cuenta.' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Hubo un error en el servidor.' });
+  }
+});
+
+// NUEVA RUTA: Verificar Código OTP
+app.post('/api/verificar', async (req, res) => {
+  try {
+    const { email, codigo } = req.body;
+    
+    const comercio = await prisma.comercio.findUnique({ where: { email: email } });
+    if (!comercio) return res.status(404).json({ error: 'Comercio no encontrado.' });
+    if (comercio.verificado) return res.status(400).json({ error: 'Esta cuenta ya está verificada.' });
+    if (comercio.codigoVerificacion !== codigo) return res.status(400).json({ error: 'Código incorrecto.' });
+
+    // Si el código es correcto, activamos la cuenta y borramos el código
+    await prisma.comercio.update({
+      where: { email: email },
+      data: { verificado: true, codigoVerificacion: null }
+    });
+
+    res.status(200).json({ mensaje: '¡Cuenta verificada con éxito!' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al verificar la cuenta.' });
   }
 });
 
@@ -118,6 +169,13 @@ app.post('/api/login', async (req, res) => {
 
     if (!comercio) {
       return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
+    }
+
+    if (!comercio.verificado) {
+      return res.status(403).json({ 
+        error: 'Cuenta no verificada. Por favor, revisa tu correo electrónico.',
+        requiereVerificacion: true 
+      });
     }
 
     const passwordValida = await bcrypt.compare(password, comercio.password);
