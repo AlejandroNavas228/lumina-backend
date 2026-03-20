@@ -12,14 +12,20 @@ const prisma = new PrismaClient();
 const PORT = 3000;
 
 // --- CONFIGURACIÓN DEL CARTERO (NODEMAILER) ---
+// --- CONFIGURACIÓN DEL CARTERO (NODEMAILER) ---
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
+  host: 'smtp.gmail.com', // Usamos el servidor de Gmail
   port: 465,
-  secure: true, // true para el puerto 465
+  secure: true, 
   auth: {
     user: process.env.EMAIL_USUARIO,
     pass: process.env.EMAIL_PASSWORD
-  }
+  },
+  // ESTAS TRES LÍNEAS SON EL TRUCO PARA RENDER:
+  tls: {
+    rejectUnauthorized: false
+  },
+  family: 4 // ¡FORZAMOS EL USO DE IPv4 para evitar el error ENETUNREACH!
 });
 
 // --- ESCUDO DE SEGURIDAD CORS ---
