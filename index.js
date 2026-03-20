@@ -31,7 +31,16 @@ const opcionesCors = {
   }
 };
 
-app.use(cors(opcionesCors));
+// --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
+app.use(cors({
+  origin: [
+    'http://localhost:5173', // Para cuando programas en tu PC
+    'https://pay-saas-frontend.vercel.app', // Tu enlace viejo de Vercel
+    'https://luminapay.xyz', // ¡TU NUEVO DOMINIO OFICIAL!
+    'https://www.luminapay.xyz' // Tu nuevo dominio con www
+  ],
+  credentials: true
+}));
 // ---------------------------------
 // ---------------------------------
 app.use(express.json());
