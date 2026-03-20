@@ -11,22 +11,24 @@ const app = express();
 const prisma = new PrismaClient(); 
 const PORT = 3000;
 
-// --- CONFIGURACIÓN DEL CARTERO (NODEMAILER) ---
-// --- CONFIGURACIÓN DEL CARTERO (NODEMAILER) ---
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com', // Usamos el servidor de Gmail
-  port: 465,
-  secure: true, 
-  auth: {
-    user: process.env.EMAIL_USUARIO,
-    pass: process.env.EMAIL_PASSWORD
-  },
-  // ESTAS TRES LÍNEAS SON EL TRUCO PARA RENDER:
-  tls: {
-    rejectUnauthorized: false
-  },
-  family: 4 // ¡FORZAMOS EL USO DE IPv4 para evitar el error ENETUNREACH!
-});
+// ... código anterior donde creas el nuevoComercio ...
+
+    // MODO DESARROLLADOR: Simulamos el envío del correo imprimiéndolo en consola
+    console.log(`\n========================================`);
+    console.log(`📧 SIMULADOR DE CORREO PARA: ${email}`);
+    console.log(`🔐 Tu código de verificación es: ${codigoOTP}`);
+    console.log(`========================================\n`);
+
+    /* (Comentamos el cartero real por el bloqueo de Render gratuito)
+    await transporter.sendMail({
+      from: `"Equipo Lumina Pay" <${process.env.EMAIL_USUARIO}>`,
+      to: email,
+      subject: '🛡️ Verifica tu cuenta en Lumina Pay',
+      // ... resto del correo ...
+    });
+    */
+
+    res.status(201).json({ mensaje: 'Comercio creado. Revisa tu consola para ver el código.' });
 
 // --- ESCUDO DE SEGURIDAD CORS ---
 const dominiosPermitidos = [
