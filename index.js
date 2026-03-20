@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import 'dotenv/config';
 import jwt from 'jsonwebtoken';
 import express from 'express';
@@ -11,16 +11,7 @@ const app = express();
 const prisma = new PrismaClient(); 
 const PORT = 3000;
 
-// --- CONFIGURACIÓN DEL CARTERO (NODEMAILER) ---
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // true para el puerto 465
-  auth: {
-    user: process.env.EMAIL_USUARIO,
-    pass: process.env.EMAIL_PASSWORD
-  }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // --- ESCUDO DE SEGURIDAD CORS ---
 const dominiosPermitidos = [
@@ -93,46 +84,30 @@ const verificarApiKey = async (req, res, next) => {
 // 1. Registro de Comercios
 // 1. Registro de Comercios (CON VERIFICACIÓN)
 app.post('/api/registro', async (req, res) => {
-  try {
-    const { comercio, email, password } = req.body;
-    
-    // Verificamos si ya existe
-    const comercioExistente = await prisma.comercio.findUnique({ where: { email: email } });
-    if (comercioExistente) {
-      return res.status(400).json({ error: 'Este correo ya está registrado.' });
+ // ---> ENVÍO DE CORREO REAL CON RESEND <---
+    try {
+      await resend.emails.send({
+        from: 'Lumina Pay <soporte@luminapay.xyz>', 
+        to: email,
+        subject: '🛡️ Verifica tu cuenta en Lumina Pay',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #2563eb;">¡Bienvenido a Lumina, ${comercio}!</h2>
+            <p>Para activar tu bóveda financiera y empezar a procesar pagos, introduce este código de seguridad en tu panel:</p>
+            <div style="background-color: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
+              <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #0f172a;">${codigoOTP}</span>
+            </div>
+            <p style="color: #64748b; font-size: 12px;">Si tú no solicitaste esta cuenta, ignora este mensaje.</p>
+          </div>
+        `
+      });
+      console.log(`✅ Correo enviado exitosamente a ${email} vía Resend`);
+    } catch (errorCorreo) {
+      console.error("❌ Error enviando correo con Resend:", errorCorreo);
+      // Opcional: Podrías retornar un error 500 aquí si el correo es estrictamente obligatorio para continuar
     }
 
-    // Encriptamos contraseña y generamos código
-    const salt = await bcrypt.genSalt(10);
-    const passwordEncriptada = await bcrypt.hash(password, salt);
-    const codigoOTP = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Guardamos en la Base de Datos
-    const nuevoComercio = await prisma.comercio.create({
-      data: {
-        nombre: comercio,
-        email: email,
-        password: passwordEncriptada,
-        verificado: false,
-        codigoVerificacion: codigoOTP,
-        api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
-      }
-    });
-
-    // ---> MODO DESARROLLADOR: SIMULADOR DE CORREO <---
-    // (Ahora sí está adentro de la ruta, donde 'email' y 'codigoOTP' sí existen)
-    console.log(`\n========================================`);
-    console.log(`📧 SIMULADOR DE CORREO PARA: ${email}`);
-    console.log(`🔐 Tu código de verificación es: ${codigoOTP}`);
-    console.log(`========================================\n`);
-
-    res.status(201).json({ mensaje: 'Comercio creado. Revisa la consola para el código.' });
-    
-  } catch (error) {
-    console.error("Error en registro:", error);
-    res.status(500).json({ error: 'Hubo un error interno al registrar el comercio.' });
-  }
-});
+    res.status(201).json({ mensaje: 'Comercio creado. Revisa tu correo.' });
 
 // NUEVA RUTA: Verificar Código OTP
 app.post('/api/verificar', async (req, res) => {
@@ -155,6 +130,8 @@ app.post('/api/verificar', async (req, res) => {
     res.status(500).json({ error: 'Error al verificar la cuenta.' });
   }
 });
+});
+
 
 // 2. Login de Comercios
 app.post('/api/login', async (req, res) => {
