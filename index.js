@@ -11,24 +11,16 @@ const app = express();
 const prisma = new PrismaClient(); 
 const PORT = 3000;
 
-// ... código anterior donde creas el nuevoComercio ...
-
-    // MODO DESARROLLADOR: Simulamos el envío del correo imprimiéndolo en consola
-    console.log(`\n========================================`);
-    console.log(`📧 SIMULADOR DE CORREO PARA: ${email}`);
-    console.log(`🔐 Tu código de verificación es: ${codigoOTP}`);
-    console.log(`========================================\n`);
-
-    /* (Comentamos el cartero real por el bloqueo de Render gratuito)
-    await transporter.sendMail({
-      from: `"Equipo Lumina Pay" <${process.env.EMAIL_USUARIO}>`,
-      to: email,
-      subject: '🛡️ Verifica tu cuenta en Lumina Pay',
-      // ... resto del correo ...
-    });
-    */
-
-    res.status(201).json({ mensaje: 'Comercio creado. Revisa tu consola para ver el código.' });
+// --- CONFIGURACIÓN DEL CARTERO (NODEMAILER) ---
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // true para el puerto 465
+  auth: {
+    user: process.env.EMAIL_USUARIO,
+    pass: process.env.EMAIL_PASSWORD
+  }
+});
 
 // --- ESCUDO DE SEGURIDAD CORS ---
 const dominiosPermitidos = [
@@ -103,18 +95,19 @@ const verificarApiKey = async (req, res, next) => {
 app.post('/api/registro', async (req, res) => {
   try {
     const { comercio, email, password } = req.body;
+    
+    // Verificamos si ya existe
     const comercioExistente = await prisma.comercio.findUnique({ where: { email: email } });
-
     if (comercioExistente) {
       return res.status(400).json({ error: 'Este correo ya está registrado.' });
     }
 
+    // Encriptamos contraseña y generamos código
     const salt = await bcrypt.genSalt(10);
     const passwordEncriptada = await bcrypt.hash(password, salt);
-
-    // Generamos un código aleatorio de 6 dígitos
     const codigoOTP = Math.floor(100000 + Math.random() * 900000).toString();
 
+    // Guardamos en la Base de Datos
     const nuevoComercio = await prisma.comercio.create({
       data: {
         nombre: comercio,
@@ -126,27 +119,18 @@ app.post('/api/registro', async (req, res) => {
       }
     });
 
-    // Enviamos el correo real
-    await transporter.sendMail({
-      from: `"Equipo Lumina Pay" <${process.env.EMAIL_USUARIO}>`,
-      to: email,
-      subject: '🛡️ Verifica tu cuenta en Lumina Pay',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-          <h2 style="color: #2563eb;">¡Bienvenido a Lumina, ${comercio}!</h2>
-          <p>Para activar tu bóveda financiera y empezar a procesar pagos, introduce este código de seguridad en tu panel:</p>
-          <div style="background-color: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #0f172a;">${codigoOTP}</span>
-          </div>
-          <p style="color: #64748b; font-size: 12px;">Si tú no solicitaste esta cuenta, ignora este correo.</p>
-        </div>
-      `
-    });
+    // ---> MODO DESARROLLADOR: SIMULADOR DE CORREO <---
+    // (Ahora sí está adentro de la ruta, donde 'email' y 'codigoOTP' sí existen)
+    console.log(`\n========================================`);
+    console.log(`📧 SIMULADOR DE CORREO PARA: ${email}`);
+    console.log(`🔐 Tu código de verificación es: ${codigoOTP}`);
+    console.log(`========================================\n`);
 
-    res.status(201).json({ mensaje: 'Comercio creado. Revisa tu correo para verificar tu cuenta.' });
+    res.status(201).json({ mensaje: 'Comercio creado. Revisa la consola para el código.' });
+    
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Hubo un error en el servidor.' });
+    console.error("Error en registro:", error);
+    res.status(500).json({ error: 'Hubo un error interno al registrar el comercio.' });
   }
 });
 
