@@ -188,6 +188,86 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// 3. Solicitar recuperación de contraseña (Envía el correo)
+app.post('/api/recuperar-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    // 1. Verificamos si el correo existe en la base de datos
+    const comercio = await prisma.comercio.findUnique({ where: { email: email } });
+    if (!comercio) {
+      // Por seguridad, siempre respondemos que se envió, para evitar que los hackers adivinen correos
+      return res.status(200).json({ mensaje: 'Si el correo existe, hemos enviado un código.' });
+    }
+
+    // 2. Generamos un nuevo código de 6 dígitos
+    const codigoOTP = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 3. Lo guardamos en el usuario
+    await prisma.comercio.update({
+      where: { email: email },
+      data: { codigoVerificacion: codigoOTP }
+    });
+
+    // 4. Enviamos el correo con Resend
+    await resend.emails.send({
+      from: 'Lumina Pay <soporte@luminapay.xyz>', 
+      to: email,
+      subject: '🔒 Recuperación de Contraseña - Lumina Pay',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #2563eb;">Recupera tu acceso a Lumina</h2>
+          <p>Hola, ${comercio.nombre}. Hemos recibido una solicitud para cambiar tu contraseña.</p>
+          <p>Usa este código de seguridad de 6 dígitos para crear una nueva contraseña:</p>
+          <div style="background-color: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #0f172a;">${codigoOTP}</span>
+          </div>
+          <p style="color: #64748b; font-size: 12px;">Si no fuiste tú, ignora este correo. Tu cuenta está segura.</p>
+        </div>
+      `
+    });
+
+    res.status(200).json({ mensaje: 'Si el correo existe, hemos enviado un código.' });
+  } catch (error) {
+    console.error("Error al pedir recuperación:", error);
+    res.status(500).json({ error: 'Hubo un problema al procesar la solicitud.' });
+  }
+});
+
+// 4. Restablecer la contraseña (Verifica el código y guarda la nueva clave)
+app.post('/api/restablecer-password', async (req, res) => {
+  try {
+    const { email, codigo, nuevaPassword } = req.body;
+
+    // 1. Buscamos al usuario
+    const comercio = await prisma.comercio.findUnique({ where: { email: email } });
+    if (!comercio) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    // 2. Verificamos que el código sea el correcto
+    if (comercio.codigoVerificacion !== codigo) {
+      return res.status(400).json({ error: 'Código de seguridad incorrecto.' });
+    }
+
+    // 3. Encriptamos la nueva contraseña
+    const salt = await bcrypt.genSalt(10);
+    const passwordEncriptada = await bcrypt.hash(nuevaPassword, salt);
+
+    // 4. Guardamos la nueva clave y borramos el código usado
+    await prisma.comercio.update({
+      where: { email: email },
+      data: { 
+        password: passwordEncriptada,
+        codigoVerificacion: null // Limpiamos el código por seguridad
+      }
+    });
+
+    res.status(200).json({ mensaje: '¡Contraseña actualizada con éxito! Ya puedes iniciar sesión.' });
+  } catch (error) {
+    console.error("Error al cambiar clave:", error);
+    res.status(500).json({ error: 'No se pudo actualizar la contraseña.' });
+  }
+});
+
 
 // ==========================================
 //          RUTAS DE PAGOS (CORE)
