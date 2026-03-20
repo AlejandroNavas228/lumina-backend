@@ -13,36 +13,17 @@ const PORT = 3000;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// --- ESCUDO DE SEGURIDAD CORS ---
-const dominiosPermitidos = [
-  'https://pay-saas-frontend.vercel.app', // Tu dominio oficial principal
-  'https://pay-saas-frontend-git-main-alejandronavas228s-projects.vercel.app', // El enlace temporal de Vercel
-  'http://localhost:5173' // Tu computadora local
-];
-
-const opcionesCors = {
-  origin: function (origin, callback) {
-    if (!origin || dominiosPermitidos.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.error(`🚨 CORS BLOQUEÓ ESTA URL EXACTA: "${origin}"`); 
-      callback(new Error('Acceso denegado: Bloqueado por el escudo CORS de Lumina'));
-    }
-  }
-};
-
 // --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
 app.use(cors({
   origin: [
-    'http://localhost:5173', // Para cuando programas en tu PC
-    'https://pay-saas-frontend.vercel.app', // Tu enlace viejo de Vercel
-    'https://luminapay.xyz', // ¡TU NUEVO DOMINIO OFICIAL!
-    'https://www.luminapay.xyz' // Tu nuevo dominio con www
+    'http://localhost:5173', 
+    'https://pay-saas-frontend.vercel.app', 
+    'https://luminapay.xyz', 
+    'https://www.luminapay.xyz' 
   ],
   credentials: true
 }));
-// ---------------------------------
-// ---------------------------------
+
 app.use(express.json());
 
 // --- MIDDLEWARES (Seguridad) ---
@@ -61,23 +42,20 @@ const verificarToken = (req, res, next) => {
   }
 };
 
-// --- MIDDLEWARE: SEGURIDAD MÁQUINA A MÁQUINA (API KEYS) ---
 const verificarApiKey = async (req, res, next) => {
-  const apiKey = req.header('x-api-key'); // Las empresas enviarán su llave aquí
+  const apiKey = req.header('x-api-key'); 
   
   if (!apiKey) {
     return res.status(401).json({ error: 'Acceso denegado. Falta la API Key corporativa.' });
   }
 
   try {
-    // Buscamos en la base de datos a qué empresa le pertenece esta llave
     const comercio = await prisma.comercio.findFirst({ where: { api_key: apiKey } });
     
     if (!comercio) {
       return res.status(401).json({ error: 'API Key inválida o revocada.' });
     }
 
-    // Si la llave es real, lo dejamos pasar y anotamos quién es
     req.comercioId = comercio.id; 
     next();
   } catch (error) {
@@ -87,13 +65,38 @@ const verificarApiKey = async (req, res, next) => {
 
 
 // ==========================================
-//           RUTAS DE AUTENTICACIÓN
+//          RUTAS DE AUTENTICACIÓN
 // ==========================================
 
-// 1. Registro de Comercios
-// 1. Registro de Comercios (CON VERIFICACIÓN)
+// 1. Registro de Comercios (CON VERIFICACIÓN OTP)
 app.post('/api/registro', async (req, res) => {
- // ---> ENVÍO DE CORREO REAL CON RESEND <---
+  try {
+    const { comercio, email, password } = req.body;
+    
+    // Validar si el correo ya existe
+    const comercioExistente = await prisma.comercio.findUnique({ where: { email: email } });
+    if (comercioExistente) {
+      return res.status(400).json({ error: 'Este correo ya está registrado.' });
+    }
+
+    // Encriptar y generar código
+    const salt = await bcrypt.genSalt(10);
+    const passwordEncriptada = await bcrypt.hash(password, salt);
+    const codigoOTP = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Guardar en Base de Datos
+    const nuevoComercio = await prisma.comercio.create({
+      data: {
+        nombre: comercio,
+        email: email,
+        password: passwordEncriptada,
+        verificado: false,
+        codigoVerificacion: codigoOTP,
+        api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
+      }
+    });
+
+    // Enviar correo con Resend
     try {
       await resend.emails.send({
         from: 'Lumina Pay <soporte@luminapay.xyz>', 
@@ -113,10 +116,15 @@ app.post('/api/registro', async (req, res) => {
       console.log(`✅ Correo enviado exitosamente a ${email} vía Resend`);
     } catch (errorCorreo) {
       console.error("❌ Error enviando correo con Resend:", errorCorreo);
-      // Opcional: Podrías retornar un error 500 aquí si el correo es estrictamente obligatorio para continuar
     }
 
     res.status(201).json({ mensaje: 'Comercio creado. Revisa tu correo.' });
+
+  } catch (error) {
+    console.error("Error en el registro:", error);
+    res.status(500).json({ error: 'Hubo un error interno al registrar el comercio.' });
+  }
+});
 
 // NUEVA RUTA: Verificar Código OTP
 app.post('/api/verificar', async (req, res) => {
@@ -138,7 +146,6 @@ app.post('/api/verificar', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Error al verificar la cuenta.' });
   }
-});
 });
 
 
@@ -183,25 +190,38 @@ app.post('/api/login', async (req, res) => {
 
 
 // ==========================================
-//           RUTAS DE PAGOS (CORE)
+//          RUTAS DE PAGOS (CORE)
 // ==========================================
 
-// 3. Procesar un nuevo pago (Checkout) + WEBHOOK + API KEY SECURITY
+// 3. Procesar un nuevo pago (Checkout Manual vía API) + WEBHOOK
 app.post('/api/pagos/procesar', verificarApiKey, async (req, res) => {
-  // B. ---> INICIO DEL WEBHOOK DINÁMICO <---
+  try {
+    const { monto, moneda, metodo, referencia } = req.body;
+    const comercioIdReal = req.comercioId; 
+
+    const nuevaTransaccion = await prisma.transaccion.create({
+      data: {
+        monto: monto,
+        moneda: moneda,
+        metodo: metodo,
+        referencia: referencia || null,
+        estado: 'aprobado',
+        comercioId: comercioIdReal
+      }
+    });
+
+    // B. ---> INICIO DEL WEBHOOK DINÁMICO <---
     try {
-      // 1. Buscamos al comercio en la base de datos para ver si tiene un webhook guardado
       const comercio = await prisma.comercio.findUnique({ 
         where: { id: comercioIdReal } 
       });
 
-      // 2. Si el comercio configuró una URL, le enviamos el aviso
-      if (comercio.url_webhook) {
+      if (comercio && comercio.url_webhook) {
         fetch(comercio.url_webhook, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${comercio.api_key}` // Usamos su propia llave como seguridad
+            'Authorization': `Bearer ${comercio.api_key}` 
           },
           body: JSON.stringify({
             evento: 'pago_exitoso',
@@ -213,13 +233,22 @@ app.post('/api/pagos/procesar', verificarApiKey, async (req, res) => {
             }
           })
         }).catch(err => console.error("Error enviando el Webhook:", err)); 
-      } else {
-        console.log(`El comercio ${comercio.nombre} no tiene Webhook configurado. Mensaje omitido.`);
       }
     } catch (errorWebhook) {
       console.error("Fallo al preparar el Webhook:", errorWebhook);
     }
+
+    res.status(201).json({ 
+      mensaje: 'Pago procesado exitosamente', 
+      recibo: nuevaTransaccion.id 
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Hubo un error al guardar el pago.' });
+  }
 });
+
 
 // --- NUEVA RUTA: Procesar pagos desde Enlaces Públicos (Sin API Key) ---
 app.post('/api/pagos/enlace-publico', async (req, res) => {
@@ -251,7 +280,7 @@ app.post('/api/pagos/enlace-publico', async (req, res) => {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${comercio.api_key}` // Lumina usa la llave del comercio para identificarse
+            'Authorization': `Bearer ${comercio.api_key}`
           },
           body: JSON.stringify({
             evento: 'pago_exitoso',
@@ -294,7 +323,7 @@ app.get('/api/pagos/:comercioId', verificarToken, async (req, res) => {
 
 
 // ==========================================
-//           RUTAS DE CONFIGURACIÓN
+//          RUTAS DE CONFIGURACIÓN
 // ==========================================
 
 // 5. Obtener datos del comercio
@@ -308,6 +337,7 @@ app.get('/api/comercio/:id', verificarToken, async (req, res) => {
         nombre: true,
         email: true,
         api_key: true,
+        url_webhook: true, // Agregado para que retorne el webhook si existe
         createdAt: true
       }
     });
