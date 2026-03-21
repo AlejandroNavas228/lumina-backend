@@ -1,3 +1,4 @@
+import { OAuth2Client } from 'google-auth-library';
 import { Resend } from 'resend';
 import 'dotenv/config';
 import jwt from 'jsonwebtoken';
@@ -10,8 +11,8 @@ import bcrypt from 'bcryptjs';
 const app = express();
 const prisma = new PrismaClient(); 
 const PORT = 3000;
-
 const resend = new Resend(process.env.RESEND_API_KEY);
+const clienteGoogle = new OAuth2Client("758151472142-ej6ncaq5nio8l2mjf8hobmrrmbbb7buc.apps.googleusercontent.com");
 
 // --- CONFIGURACIÓN DE SEGURIDAD (CORS) ---
 app.use(cors({
