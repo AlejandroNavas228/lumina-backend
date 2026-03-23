@@ -71,6 +71,16 @@ const verificarApiKey = async (req, res, next) => {
 
 // 1. Registro de Comercios (CON VERIFICACIÓN OTP)
 app.post('/api/registro', async (req, res) => {
+
+  // --- VALIDACIÓN ESTRICTA DE CONTRASEÑA ---
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({ 
+        error: 'La contraseña debe tener al menos 8 caracteres, incluir una mayúscula, un número y un símbolo especial (@$!%*?&).' 
+      });
+    }
+    // -----------------------------------------
   try {
     const { comercio, email, password } = req.body;
     
