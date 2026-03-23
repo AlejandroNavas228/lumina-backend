@@ -269,6 +269,61 @@ app.post('/api/restablecer-password', async (req, res) => {
   }
 });
 
+// --- NUEVA RUTA: Login con Google ---
+app.post('/api/login/google', async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    // 1. Verificamos que el boleto sea 100% real con los servidores de Google
+    const ticket = await clienteGoogle.verifyIdToken({
+      idToken: token,
+      audience: "758151472142-ej6ncaq5nio8l2mjf8hobmrrmbbb7buc.apps.googleusercontent.com",
+    });
+    
+    // 2. Extraemos los datos del usuario de Google
+    const payload = ticket.getPayload();
+    const email = payload.email;
+    const nombre = payload.name;
+
+    // 3. Buscamos si ya existe en Lumina
+    let comercio = await prisma.comercio.findUnique({ where: { email: email } });
+
+    // 4. Si es la primera vez que entra, le creamos la cuenta en automático
+    if (!comercio) {
+      // Le generamos una contraseña aleatoria imposible de adivinar (porque entrará con Google)
+      const salt = await bcrypt.genSalt(10);
+      const passwordAleatoria = await bcrypt.hash(Math.random().toString(36).slice(-12), salt);
+
+      comercio = await prisma.comercio.create({
+        data: {
+          nombre: nombre,
+          email: email,
+          password: passwordAleatoria,
+          verificado: true, // ¡Como es de Google, sabemos que el correo es real! No necesita código OTP.
+          api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
+        }
+      });
+    }
+
+    // 5. Le damos nuestro propio token VIP de Lumina para que navegue
+    const tokenLumina = jwt.sign(
+      { id: comercio.id }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '24h' }
+    );
+
+    res.status(200).json({
+      mensaje: 'Login con Google exitoso',
+      token: tokenLumina,
+      comercio: { id: comercio.id, nombre: comercio.nombre, email: comercio.email }
+    });
+
+  } catch (error) {
+    console.error("Error en Google Login:", error);
+    res.status(401).json({ error: 'Token de Google inválido o expirado.' });
+  }
+});
+
 
 // ==========================================
 //          RUTAS DE PAGOS (CORE)
