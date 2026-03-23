@@ -324,6 +324,78 @@ app.post('/api/login/google', async (req, res) => {
   }
 });
 
+// --- NUEVA RUTA: Login con GitHub ---
+app.post('/api/login/github', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    // 1. Le pedimos a GitHub el token de acceso real usando nuestro Secret
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json' // Esto es vital para que GitHub responda en JSON
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code: code
+      })
+    });
+    const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
+
+    if (!accessToken) return res.status(400).json({ error: 'Código de GitHub inválido o expirado.' });
+
+    // 2. Usamos el token para pedir los datos del perfil del usuario
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    const userData = await userResponse.json();
+
+    // 3. GitHub a veces oculta el correo público. Tenemos que pedirlo explícitamente.
+    const emailResponse = await fetch('https://api.github.com/user/emails', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    const emails = await emailResponse.json();
+    // Buscamos el correo principal verificado
+    const primaryEmail = emails.find(e => e.primary && e.verified)?.email || emails[0]?.email;
+
+    if (!primaryEmail) return res.status(400).json({ error: 'No pudimos obtener tu correo de GitHub.' });
+
+    // 4. Buscamos si ya existe en Lumina (Misma lógica que Google)
+    let comercio = await prisma.comercio.findUnique({ where: { email: primaryEmail } });
+
+    if (!comercio) {
+      const salt = await bcrypt.genSalt(10);
+      const passwordAleatoria = await bcrypt.hash(Math.random().toString(36).slice(-12), salt);
+
+      comercio = await prisma.comercio.create({
+        data: {
+          nombre: userData.name || userData.login, // Si no tiene nombre real, usamos su username
+          email: primaryEmail,
+          password: passwordAleatoria,
+          verificado: true,
+          api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
+        }
+      });
+    }
+
+    // 5. Generamos nuestro token VIP de Lumina
+    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+
+    res.status(200).json({
+      mensaje: 'Login con GitHub exitoso',
+      token: tokenLumina,
+      comercio: { id: comercio.id, nombre: comercio.nombre, email: comercio.email }
+    });
+
+  } catch (error) {
+    console.error("Error en GitHub Login:", error);
+    res.status(500).json({ error: 'Error interno conectando con GitHub.' });
+  }
+});
+
 
 // ==========================================
 //          RUTAS DE PAGOS (CORE)
