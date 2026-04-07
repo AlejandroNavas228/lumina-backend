@@ -8,7 +8,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 2. Tabla de Comercios 
+// 2. Tabla de Comercios
 model Comercio {
   id                 String        @id @default(uuid())
   nombre             String
@@ -18,26 +18,46 @@ model Comercio {
   url_webhook        String?
   verificado         Boolean       @default(false)
   codigoVerificacion String?
-  createdAt          DateTime      @default(now())
   
-  // Relación con los pagos
+  // ---> BÓVEDA WEB3 <---
+  wallet_usdt        String?       
+
+  // ---> NUEVOS MÉTODOS DE PAGO <---
+  pago_movil_cedula  String?
+  pago_movil_banco   String?
+  pago_movil_tel     String?
+  zelle_email        String?
+  paypal_client_id   String?
+
+  // ---> CONTROL DEL NEGOCIO (SAAS) <---
+  plan_actual        String        @default("starter") // Opciones: starter, pro, business
+  fecha_vencimiento  DateTime?
+
+  createdAt          DateTime      @default(now())
   transacciones      Transaccion[]
 }
-  
- 
-
 
 // 3. Tabla de Transacciones (Los pagos que hacen los clientes)
 model Transaccion {
-  id          String   @id @default(uuid())
-  referencia  String?  // Ej: Los últimos 6 dígitos del pago móvil
-  monto       Decimal  @db.Decimal(10, 2)
-  moneda      String   // "USD" o "VES"
-  metodo      String   // "pago_movil" o "tarjeta"
-  estado      String   @default("pendiente") // "pendiente", "aprobado", "rechazado"
-  fecha       DateTime @default(now())
+  id                 String   @id @default(uuid())
+  monto              Decimal  @db.Decimal(10, 2)
+  moneda             String   @default("USD") // "USD" o "VES"
+  descripcion        String?  // Ej: "Pago por 2 camisas"
+  estado             String   @default("pendiente") // "pendiente", "aprobado", "rechazado", "en_revision"
+  
+  // Datos del método de pago
+  metodo             String   @default("sandbox") // "sandbox", "pago_movil", "zelle", "binance"
+  referencia_cliente String?  // <--- CAMBIADO AQUÍ PARA QUE COINCIDA CON EL BACKEND
+
+  // Datos de conexión con la tienda externa
+  referenciaComercio String?  // El ID del pedido en la tienda original (ej. pedido_001)
+  urlExito           String?  // A dónde devolvemos al comprador si paga bien
+  urlCancelado       String?  // A dónde lo devolvemos si cancela el pago
+
+  fecha              DateTime @default(now())
+  updatedAt          DateTime @updatedAt
   
   // Relación: A qué comercio le pertenece este dinero
-  comercioId  String
-  comercio    Comercio @relation(fields: [comercioId], references: [id])
+  comercioId         String
+  comercio           Comercio @relation(fields: [comercioId], references: [id])
 }
