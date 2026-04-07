@@ -22,6 +22,8 @@ const clienteGoogle = new OAuth2Client("758151472142-ej6ncaq5nio8l2mjf8hobmrrmbb
 app.use(cors({
   origin: [
     'http://localhost:5173', 
+    'http://127.0.0.1:5500', 
+    'http://localhost:5500', 
     'https://pay-saas-frontend.vercel.app', 
     'https://luminapay.xyz', 
     'https://www.luminapay.xyz' 
