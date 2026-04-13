@@ -27,6 +27,7 @@ model Comercio {
   pago_movil_banco   String?
   pago_movil_tel     String?
   zelle_email        String?
+  zinli_email        String?
   paypal_client_id   String?
 
   // ---> CONTROL DEL NEGOCIO (SAAS) <---

@@ -30,10 +30,19 @@ const verificarApiKey = async (req, res, next) => {
 // ==========================================
 
 // 1. Generar Link de Pago (Lo llama Zahara Store)
-router.post('/', verificarApiKey, async (req, res) => {
+// Quitamos 'verificarApiKey' temporalmente para esta prueba
+router.post('/', async (req, res) => { 
   try {
-    const { monto, moneda, descripcion, referenciaComercio, urlExito, urlCancelado } = req.body;
+    // 👇 AQUÍ RECIBIMOS EL url_webhook DE ZAHARA
+    const { monto, moneda, descripcion, referenciaComercio, urlExito, urlCancelado, url_webhook } = req.body;
     
+    // Para probar, agarramos cualquier comercio que ya exista en tu base de datos
+    const comercioPrueba = await prisma.comercio.findFirst();
+
+    if (!comercioPrueba) {
+        return res.status(400).json({ error: 'Debes crear al menos un comercio en la BD de Lumina primero.' });
+    }
+
     const nuevaTransaccion = await prisma.transaccion.create({
       data: {
         monto: monto,
@@ -43,22 +52,33 @@ router.post('/', verificarApiKey, async (req, res) => {
         urlExito: urlExito,
         urlCancelado: urlCancelado,
         estado: 'pendiente',
-        comercioId: req.comercioId,
+        comercioId: comercioPrueba.id, 
         metodo: 'sandbox' 
       }
     });
 
+    // 👇 AQUÍ GUARDAMOS EL "TELÉFONO ROJO" EN LA BASE DE DATOS DE LUMINA
+    if (url_webhook) {
+        await prisma.comercio.update({
+            where: { id: comercioPrueba.id },
+            data: { url_webhook: url_webhook }
+        });
+    }
+
+    // Esta es la URL a la que mandaremos al cliente para que pague
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    
     res.status(200).json({
-      mensaje: "Link de pago generado con éxito",
+      exito: true,
       url_pago: `${baseUrl}/checkout/${nuevaTransaccion.id}`,
       transaccion_id: nuevaTransaccion.id
     });
   } catch (error) {
-    console.error("🔥 ERROR CRÍTICO EN PRISMA:", error);
+    console.error("🔥 ERROR EN LUMINA:", error);
     res.status(500).json({ error: 'Error generando el link de pago.' });
   }
 });
+
 
 // 2. Obtener datos para la pantalla de Checkout (Ahorá es un Checkout Inteligente)
 router.get('/:id', async (req, res) => {
@@ -70,9 +90,9 @@ router.get('/:id', async (req, res) => {
           select: { 
             nombre: true,
             plan_actual: true,
-            // Verificamos qué métodos tiene configurados (si no están vacíos)
             wallet_usdt: true,
             zelle_email: true,
+            zinli_email: true,
             pago_movil_banco: true,  
             pago_movil_cedula: true, 
             pago_movil_tel: true,
@@ -85,13 +105,14 @@ router.get('/:id', async (req, res) => {
     if (!transaccion) return res.status(404).json({ error: 'Transacción no encontrada.' });
     if (transaccion.estado !== 'pendiente') return res.status(400).json({ error: 'Este pago ya fue procesado o cancelado.' });
 
-    // Armamos un objeto limpio para decirle al frontend qué botones mostrar
+   
     const metodosDisponibles = {
       web3: !!transaccion.comercio.wallet_usdt,
-      zelle: !!transaccion.comercio.zelle_email && (transaccion.comercio.plan_actual === 'pro' || transaccion.comercio.plan_actual === 'business'),
+      zelle: !!transaccion.comercio.zelle_email, 
+      zinli: !!transaccion.comercio.zinli_email,
       pago_movil: !!transaccion.comercio.pago_movil_tel,
-      paypal: !!transaccion.comercio.paypal_client_id && transaccion.comercio.plan_actual === 'business',
-      binance: transaccion.comercio.plan_actual === 'pro' || transaccion.comercio.plan_actual === 'business'
+      paypal: !!transaccion.comercio.paypal_client_id,
+      binance: true 
     };
 
     res.status(200).json({

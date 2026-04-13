@@ -7,7 +7,6 @@ import { OAuth2Client } from 'google-auth-library';
 import { Resend } from 'resend';
 import 'dotenv/config';
 
-// Importamos nuestro nuevo enrutador limpio
 import checkoutRoutes from './routes/checkout.routes.js';
 
 // ==========================================
@@ -15,23 +14,24 @@ import checkoutRoutes from './routes/checkout.routes.js';
 // ==========================================
 const app = express();
 const prisma = new PrismaClient(); 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
+
 const resend = new Resend(process.env.RESEND_API_KEY);
-const clienteGoogle = new OAuth2Client("758151472142-ej6ncaq5nio8l2mjf8hobmrrmbbb7buc.apps.googleusercontent.com");
+const clienteGoogle = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// Configuración dinámica de CORS (Escudo de seguridad)
+// Lee la variable FRONTEND_URL. Si hay varias separadas por coma, las convierte en lista.
+const origenesPermitidos = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.split(',') 
+  : ['http://localhost:5173'];
 
 app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'http://127.0.0.1:5500', 
-    'http://localhost:5500', 
-    'https://pay-saas-frontend.vercel.app', 
-    'https://luminapay.xyz', 
-    'https://www.luminapay.xyz' 
-  ],
+  origin: origenesPermitidos,
   credentials: true
 }));
 
 app.use(express.json());
+app.use('/api', checkoutRoutes);
 
 // ==========================================
 // 2. MIDDLEWARES DE SEGURIDAD
@@ -69,7 +69,6 @@ const verificarApiKey = async (req, res, next) => {
 // 3. RUTAS DE AUTENTICACIÓN (LOGIN/REGISTRO)
 // ==========================================
 
-// Registro Tradicional
 app.post('/api/registro', async (req, res) => {
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
   if (!passwordRegex.test(req.body.password)) {
@@ -103,7 +102,7 @@ app.post('/api/registro', async (req, res) => {
         subject: '🛡️ Verifica tu cuenta en Lumina Pay',
         html: `<p>Tu código de verificación es: <strong>${codigoOTP}</strong></p>`
       });
-    } catch (e) { console.error("Error enviando correo:", e); }
+    } catch (e) { console.error("Error enviando correo silencioso"); }
 
     res.status(201).json({ mensaje: 'Comercio creado. Revisa tu correo.' });
   } catch (error) {
@@ -111,7 +110,6 @@ app.post('/api/registro', async (req, res) => {
   }
 });
 
-// Verificación OTP
 app.post('/api/verificar', async (req, res) => {
   try {
     const { email, codigo } = req.body;
@@ -132,7 +130,6 @@ app.post('/api/verificar', async (req, res) => {
   }
 });
 
-// Login Tradicional
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -156,13 +153,12 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Login con Google
 app.post('/api/login/google', async (req, res) => {
   try {
     const { token } = req.body;
     const ticket = await clienteGoogle.verifyIdToken({
       idToken: token,
-      audience: "758151472142-ej6ncaq5nio8l2mjf8hobmrrmbbb7buc.apps.googleusercontent.com",
+      audience: process.env.GOOGLE_CLIENT_ID,
     });
     
     const payload = ticket.getPayload();
@@ -189,7 +185,6 @@ app.post('/api/login/google', async (req, res) => {
   }
 });
 
-// Login con GitHub
 app.post('/api/login/github', async (req, res) => {
   try {
     const { code } = req.body;
@@ -236,12 +231,10 @@ app.post('/api/login/github', async (req, res) => {
   }
 });
 
-
 // ==========================================
-// 4. RUTAS DEL PANEL DEL COMERCIO (CONFIGURACIÓN)
+// 4. RUTAS DEL PANEL DEL COMERCIO
 // ==========================================
 
-// Obtener datos del comercio (Ahora trae todos los métodos de pago)
 app.get('/api/comercio/:id', verificarToken, async (req, res) => {
   try {
     const comercio = await prisma.comercio.findUnique({
@@ -249,7 +242,7 @@ app.get('/api/comercio/:id', verificarToken, async (req, res) => {
       select: { 
         id: true, nombre: true, email: true, api_key: true, url_webhook: true, 
         wallet_usdt: true, pago_movil_cedula: true, pago_movil_banco: true, 
-        pago_movil_tel: true, zelle_email: true, paypal_client_id: true, 
+        pago_movil_tel: true, zelle_email: true, zinli_email: true, paypal_client_id: true,
         plan_actual: true, createdAt: true 
       }
     });
@@ -257,36 +250,31 @@ app.get('/api/comercio/:id', verificarToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al buscar el comercio.' }); }
 });
 
-// Actualizar configuración general (Guarda todos los métodos de pago)
 app.put('/api/comercio/:id/config', verificarToken, async (req, res) => {
   try {
     const { 
       url_webhook, wallet_usdt, pago_movil_cedula, pago_movil_banco, 
-      pago_movil_tel, zelle_email, paypal_client_id 
+      pago_movil_tel, zelle_email, zinli_email, paypal_client_id 
     } = req.body;
     
     await prisma.comercio.update({
       where: { id: req.params.id },
       data: { 
         url_webhook, wallet_usdt, pago_movil_cedula, pago_movil_banco, 
-        pago_movil_tel, zelle_email, paypal_client_id
+        pago_movil_tel, zelle_email, zinli_email, paypal_client_id
       }
     });
     res.status(200).json({ mensaje: 'Configuración guardada exitosamente' });
   } catch (error) { res.status(500).json({ error: 'Error al actualizar la configuración.' }); }
 });
 
-// Actualizar el plan de suscripción del comercio
 app.put('/api/comercio/:id/plan', verificarToken, async (req, res) => {
   try {
     const { plan } = req.body;
-    
-    // Aquí actualizamos el campo plan_actual en la base de datos
     await prisma.comercio.update({
       where: { id: req.params.id },
       data: { plan_actual: plan }
     });
-    
     res.status(200).json({ mensaje: `¡Felicidades! Has cambiado al plan ${plan.toUpperCase()}` });
   } catch (error) { 
     res.status(500).json({ error: 'Error al actualizar el plan.' }); 
@@ -303,10 +291,9 @@ app.get('/api/pagos/:comercioId', verificarToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al buscar historial.' }); }
 });
 
-// Actualizar estado de una transacción (Aprobar/Rechazar pago manual)
 app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
   try {
-    const { estado } = req.body; // Recibirá 'aprobado' o 'rechazado'
+    const { estado } = req.body; 
     
     const transaccion = await prisma.transaccion.update({
       where: { id: req.params.id },
@@ -314,7 +301,6 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       include: { comercio: true }
     });
 
-    // Si el dueño aprueba el pago, disparamos el Webhook automático a su tienda
     if (estado === 'aprobado' && transaccion.comercio.url_webhook) {
       fetch(transaccion.comercio.url_webhook, {
         method: 'POST',
@@ -322,10 +308,7 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
           'Content-Type': 'application/json', 
           'Authorization': `Bearer ${transaccion.comercio.api_key}` 
         },
-        body: JSON.stringify({ 
-          evento: 'pago_exitoso', 
-          data: transaccion 
-        })
+        body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
       }).catch(e => console.log("Webhook disparado en segundo plano"));
     }
 
@@ -335,13 +318,10 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
   }
 });
 
-
 // ==========================================
-// 5. RUTAS DE LA PASARELA DE PAGOS (CORE)
+// 5. RUTAS DE LA PASARELA DE PAGOS
 // ==========================================
-
-// Le decimos a Express que toda la lógica de /api/checkout vive en este archivo externo
-app.use('/api/checkout', checkoutRoutes);
+app.use('/api/checkout', checkoutRoutes); 
 
 // ==========================================
 // 6. ESTADO DEL SERVIDOR
@@ -349,5 +329,5 @@ app.use('/api/checkout', checkoutRoutes);
 app.get('/api/status', (req, res) => { res.json({ empresa: 'Lumina', estado: 'Activo' }); });
 
 app.listen(PORT, () => {
-  console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor de Lumina corriendo en el puerto ${PORT}`);
 });
