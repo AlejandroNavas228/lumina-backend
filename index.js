@@ -20,7 +20,6 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const clienteGoogle = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Configuración dinámica de CORS (Escudo de seguridad)
-// Lee la variable FRONTEND_URL. Si hay varias separadas por coma, las convierte en lista.
 const origenesPermitidos = process.env.FRONTEND_URL 
   ? process.env.FRONTEND_URL.split(',') 
   : ['http://localhost:5173'];
@@ -300,6 +299,21 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       data: { estado: estado },
       include: { comercio: true }
     });
+
+    // LÓGICA AUTOMÁTICA DE SUSCRIPCIONES A LUMINA
+    if (estado === 'aprobado' && transaccion.descripcion && transaccion.descripcion.includes('Suscripción')) {
+      let nuevoPlan = 'starter';
+      const desc = transaccion.descripcion.toLowerCase();
+      
+      if (desc.includes('pro')) nuevoPlan = 'pro';
+      if (desc.includes('business')) nuevoPlan = 'elite';
+
+      await prisma.comercio.update({
+        where: { id: transaccion.comercioId },
+        data: { plan_actual: nuevoPlan }
+      });
+      console.log(`[SaaS] Plan ${nuevoPlan.toUpperCase()} activado para: ${transaccion.comercio.nombre}`);
+    }
 
     if (estado === 'aprobado' && transaccion.comercio.url_webhook) {
       fetch(transaccion.comercio.url_webhook, {
