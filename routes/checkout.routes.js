@@ -29,20 +29,11 @@ const verificarApiKey = async (req, res, next) => {
 // RUTAS DE CHECKOUT
 // ==========================================
 
-// 1. Generar Link de Pago (Lo llama Zahara Store)
-// Quitamos 'verificarApiKey' temporalmente para esta prueba
-router.post('/', async (req, res) => { 
+// 1. Generar Link de Pago (Con la seguridad activada)
+router.post('/', verificarApiKey, async (req, res) => { 
   try {
-    // 👇 AQUÍ RECIBIMOS EL url_webhook DE ZAHARA
     const { monto, moneda, descripcion, referenciaComercio, urlExito, urlCancelado, url_webhook } = req.body;
-    
-    // Para probar, agarramos cualquier comercio que ya exista en tu base de datos
-    const comercioPrueba = await prisma.comercio.findFirst();
-
-    if (!comercioPrueba) {
-        return res.status(400).json({ error: 'Debes crear al menos un comercio en la BD de Lumina primero.' });
-    }
-
+  
     const nuevaTransaccion = await prisma.transaccion.create({
       data: {
         monto: monto,
@@ -52,20 +43,18 @@ router.post('/', async (req, res) => {
         urlExito: urlExito,
         urlCancelado: urlCancelado,
         estado: 'pendiente',
-        comercioId: comercioPrueba.id, 
+        comercioId: req.comercioId, 
         metodo: 'sandbox' 
       }
     });
 
-    // 👇 AQUÍ GUARDAMOS EL "TELÉFONO ROJO" EN LA BASE DE DATOS DE LUMINA
     if (url_webhook) {
         await prisma.comercio.update({
-            where: { id: comercioPrueba.id },
+            where: { id: req.comercioId },
             data: { url_webhook: url_webhook }
         });
     }
 
-    // Esta es la URL a la que mandaremos al cliente para que pague
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     
     res.status(200).json({
