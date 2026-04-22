@@ -309,38 +309,44 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       
       let nuevoPlan = 'starter';
       if (desc.includes('pro')) nuevoPlan = 'pro';
-      if (desc.includes('business')) nuevoPlan = 'business'; // O 'elite' si así está en tu BD
+      if (desc.includes('business')) nuevoPlan = 'business';
 
       await prisma.comercio.update({
         where: { id: idCliente },
         data: { plan_actual: nuevoPlan }
       });
-      console.log(`✅ [SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
+      console.log(`✅ [Lumina SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
     }
 
-   // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Totalmente aislada en segundo plano)
+    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Dispara y Olvida - Cero Await)
     if (estado === 'aprobado' && transaccion.comercio.url_webhook) {
-      // Creamos una "burbuja" asíncrona que se ejecuta sola y no interrumpe el código principal
-      (async () => {
-        try {
-          await fetch(transaccion.comercio.url_webhook, {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json', 
-              'Authorization': `Bearer ${transaccion.comercio.api_key}` 
-            },
-            body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
-          });
-        } catch (error) {
-          console.log("⚠️ El webhook a la tienda falló (URL no disponible). El pago se aprobó de todas formas.");
-        }
-      })(); // <-- Estos paréntesis hacen que la burbuja se ejecute por su cuenta
+      try {
+        // Validamos la URL primero para evitar que Node lance un error síncrono si está mal escrita
+        new URL(transaccion.comercio.url_webhook); 
+
+        // Hacemos el fetch SIN 'await'. Solo lo lanzamos y atrapamos su promesa.
+        fetch(transaccion.comercio.url_webhook, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${transaccion.comercio.api_key}` 
+          },
+          body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
+        })
+        .then(() => console.log("✅ Webhook notificado a la tienda con éxito."))
+        .catch(err => console.log("⚠️ El servidor de la tienda rechazó el webhook. El pago continuó con éxito."));
+        
+      } catch (errorUrl) {
+        console.log("⚠️ El comercio tiene una URL de webhook inválida. Se ignoró.");
+      }
     }
 
-    res.status(200).json({ mensaje: `Transacción marcada como ${estado}` });
+    // 4. Respondemos a tu página web INMEDIATAMENTE
+    return res.status(200).json({ mensaje: `Transacción marcada como ${estado}` });
+    
   } catch (error) {
-    console.error("Error en la actualización:", error);
-    res.status(500).json({ error: 'Error al actualizar la transacción.' });
+    console.error("🔥 Error crítico en la actualización:", error);
+    return res.status(500).json({ error: 'Error al actualizar la transacción.' });
   }
 });
 
