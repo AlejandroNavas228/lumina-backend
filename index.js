@@ -301,11 +301,17 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       include: { comercio: true }
     });
 
-    // 2. 🚀 LÓGICA DE SUSCRIPCIONES (A prueba de balas)
+    // 2. 🚀 LÓGICA DE SUSCRIPCIONES (Al cliente correcto)
     if (estado === 'aprobado' && transaccion.referenciaComercio && transaccion.referenciaComercio.startsWith('SUB-')) {
       
-      // 💡 ¡EL CAMBIO CLAVE! Usamos el ID exacto y real de la base de datos, no el del texto.
-      const idCliente = transaccion.comercioId; 
+      // EXTRACCIÓN INTELIGENTE DEL ID (A prueba de guiones)
+      // Ejemplo de referencia: "SUB-123e4567-e89b-12d3-170000000"
+      const textoRef = transaccion.referenciaComercio;
+      const sinPrefijo = textoRef.replace('SUB-', ''); // Quitamos "SUB-"
+      const ultimoGuion = sinPrefijo.lastIndexOf('-'); // Buscamos dónde empieza la fecha
+      
+      // Cortamos justo hasta antes de la fecha. ¡Aquí tenemos el ID completo y real!
+      const idClienteReal = sinPrefijo.substring(0, ultimoGuion); 
       
       const desc = transaccion.descripcion ? transaccion.descripcion.toLowerCase() : '';
       
@@ -313,19 +319,18 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       if (desc.includes('pro')) nuevoPlan = 'pro';
       if (desc.includes('business')) nuevoPlan = 'business';
 
-      // Como idCliente viene directo de la BD, es 100% seguro que existe. Cero errores P2025.
+      // Ahora SÍ actualizamos al cliente que compró el plan
       await prisma.comercio.update({
-        where: { id: idCliente },
+        where: { id: idClienteReal },
         data: { plan_actual: nuevoPlan }
       });
-      console.log(`✅ [Lumina SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
+      console.log(`✅ [Lumina SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idClienteReal}`);
     }
 
     // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Dispara y Olvida)
     if (estado === 'aprobado' && transaccion.comercio && transaccion.comercio.url_webhook) {
       try {
         new URL(transaccion.comercio.url_webhook); 
-
         fetch(transaccion.comercio.url_webhook, {
           method: 'POST',
           headers: { 
@@ -333,10 +338,7 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
             'Authorization': `Bearer ${transaccion.comercio.api_key}` 
           },
           body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
-        })
-        .then(() => console.log("✅ Webhook notificado a la tienda con éxito."))
-        .catch(err => console.log("⚠️ El servidor de la tienda rechazó el webhook."));
-        
+        }).catch(e => {}); // Silencioso si falla
       } catch (errorUrl) {
         console.log("⚠️ URL de webhook inválida. Se ignoró.");
       }
