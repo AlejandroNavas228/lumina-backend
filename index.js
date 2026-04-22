@@ -301,19 +301,19 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       include: { comercio: true }
     });
 
-    // 2. 🚀 LÓGICA DE SUSCRIPCIONES (Blindada contra campos vacíos/null)
-    // Primero verificamos que referenciaComercio exista realmente ANTES de usar startsWith
+    // 2. 🚀 LÓGICA DE SUSCRIPCIONES (A prueba de balas)
     if (estado === 'aprobado' && transaccion.referenciaComercio && transaccion.referenciaComercio.startsWith('SUB-')) {
-      const partes = transaccion.referenciaComercio.split('-');
-      const idCliente = partes[1]; 
       
-      // También blindamos la descripción por si está vacía
+      // 💡 ¡EL CAMBIO CLAVE! Usamos el ID exacto y real de la base de datos, no el del texto.
+      const idCliente = transaccion.comercioId; 
+      
       const desc = transaccion.descripcion ? transaccion.descripcion.toLowerCase() : '';
       
       let nuevoPlan = 'starter';
       if (desc.includes('pro')) nuevoPlan = 'pro';
       if (desc.includes('business')) nuevoPlan = 'business';
 
+      // Como idCliente viene directo de la BD, es 100% seguro que existe. Cero errores P2025.
       await prisma.comercio.update({
         where: { id: idCliente },
         data: { plan_actual: nuevoPlan }
