@@ -301,11 +301,14 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       include: { comercio: true }
     });
 
-    // 2. 🚀 LÓGICA AUTOMÁTICA DE SUSCRIPCIONES (Actualizada con SUB-)
-    if (estado === 'aprobado' && transaccion.referenciaComercio?.startsWith('SUB-')) {
+    // 2. 🚀 LÓGICA DE SUSCRIPCIONES (Blindada contra campos vacíos/null)
+    // Primero verificamos que referenciaComercio exista realmente ANTES de usar startsWith
+    if (estado === 'aprobado' && transaccion.referenciaComercio && transaccion.referenciaComercio.startsWith('SUB-')) {
       const partes = transaccion.referenciaComercio.split('-');
-      const idCliente = partes[1]; // Extraemos el ID del cliente
-      const desc = transaccion.descripcion.toLowerCase();
+      const idCliente = partes[1]; 
+      
+      // También blindamos la descripción por si está vacía
+      const desc = transaccion.descripcion ? transaccion.descripcion.toLowerCase() : '';
       
       let nuevoPlan = 'starter';
       if (desc.includes('pro')) nuevoPlan = 'pro';
@@ -318,13 +321,11 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       console.log(`✅ [Lumina SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
     }
 
-    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Dispara y Olvida - Cero Await)
-    if (estado === 'aprobado' && transaccion.comercio.url_webhook) {
+    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Dispara y Olvida)
+    if (estado === 'aprobado' && transaccion.comercio && transaccion.comercio.url_webhook) {
       try {
-        // Validamos la URL primero para evitar que Node lance un error síncrono si está mal escrita
         new URL(transaccion.comercio.url_webhook); 
 
-        // Hacemos el fetch SIN 'await'. Solo lo lanzamos y atrapamos su promesa.
         fetch(transaccion.comercio.url_webhook, {
           method: 'POST',
           headers: { 
@@ -334,10 +335,10 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
           body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
         })
         .then(() => console.log("✅ Webhook notificado a la tienda con éxito."))
-        .catch(err => console.log("⚠️ El servidor de la tienda rechazó el webhook. El pago continuó con éxito."));
+        .catch(err => console.log("⚠️ El servidor de la tienda rechazó el webhook."));
         
       } catch (errorUrl) {
-        console.log("⚠️ El comercio tiene una URL de webhook inválida. Se ignoró.");
+        console.log("⚠️ URL de webhook inválida. Se ignoró.");
       }
     }
 
