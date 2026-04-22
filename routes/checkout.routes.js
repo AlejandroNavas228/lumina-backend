@@ -6,13 +6,32 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // ==========================================
-// CONFIGURACIÓN WEB3 (RADAR CRIPTO)
+// HELPER: ACTIVACIÓN AUTOMÁTICA DE PLANES
 // ==========================================
-const BSC_RPC_URL = 'https://bsc-dataseed.binance.org/';
-const USDT_CONTRACT_ADDRESS = '0x55d398326f99059fF775485246999027B3197955';
+const activarPlanSiEsSuscripcion = async (transaccion) => {
+  if (transaccion.estado === 'aprobado' && transaccion.referenciaComercio?.startsWith('SUB-')) {
+    try {
+      const partes = transaccion.referenciaComercio.split('-');
+      const idCliente = partes[1]; 
+      const desc = transaccion.descripcion.toLowerCase();
+
+      let nuevoPlan = 'starter';
+      if (desc.includes('pro')) nuevoPlan = 'pro';
+      if (desc.includes('business')) nuevoPlan = 'business';
+
+      await prisma.comercio.update({
+        where: { id: idCliente },
+        data: { plan_actual: nuevoPlan }
+      });
+      console.log(`🚀 [Lumina SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
+    } catch (error) {
+      console.error("❌ Error activando plan automático:", error);
+    }
+  }
+};
 
 // ==========================================
-// MIDDLEWARES LOCALES
+// MIDDLEWARE DE SEGURIDAD
 // ==========================================
 const verificarApiKey = async (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
@@ -22,6 +41,8 @@ const verificarApiKey = async (req, res, next) => {
   if (!comercio) return res.status(401).json({ error: 'API Key inválida' });
 
   req.comercioId = comercio.id;
+  req.comercioKey = comercio.api_key;
+  req.urlWebhook = comercio.url_webhook;
   next();
 };
 
@@ -29,47 +50,37 @@ const verificarApiKey = async (req, res, next) => {
 // RUTAS DE CHECKOUT
 // ==========================================
 
-// 1. Generar Link de Pago (Con la seguridad activada)
+// 1. Generar Link de Pago
 router.post('/', verificarApiKey, async (req, res) => { 
   try {
     const { monto, moneda, descripcion, referenciaComercio, urlExito, urlCancelado, url_webhook } = req.body;
-  
+    
     const nuevaTransaccion = await prisma.transaccion.create({
       data: {
-        monto: monto,
+        monto,
         moneda: moneda || 'USD',
-        descripcion: descripcion,
-        referenciaComercio: referenciaComercio,
-        urlExito: urlExito,
-        urlCancelado: urlCancelado,
+        descripcion,
+        referenciaComercio,
+        urlExito,
+        urlCancelado,
         estado: 'pendiente',
-        comercioId: req.comercioId, 
+        comercioId: req.comercioId,
         metodo: 'sandbox' 
       }
     });
 
-    if (url_webhook) {
-        await prisma.comercio.update({
-            where: { id: req.comercioId },
-            data: { url_webhook: url_webhook }
-        });
-    }
-
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    
     res.status(200).json({
       exito: true,
       url_pago: `${baseUrl}/checkout/${nuevaTransaccion.id}`,
       transaccion_id: nuevaTransaccion.id
     });
   } catch (error) {
-    console.error("🔥 ERROR EN LUMINA:", error);
-    res.status(500).json({ error: 'Error generando el link de pago.' });
+    res.status(500).json({ error: 'Error al generar link de pago.' });
   }
 });
 
-
-// 2. Obtener datos para la pantalla de Checkout (Ahorá es un Checkout Inteligente)
+// 2. Obtener datos para la pantalla de Checkout
 router.get('/:id', async (req, res) => {
   try {
     const transaccion = await prisma.transaccion.findUnique({
@@ -78,12 +89,9 @@ router.get('/:id', async (req, res) => {
         comercio: { 
           select: { 
             nombre: true,
-            plan_actual: true,
             wallet_usdt: true,
             zelle_email: true,
             zinli_email: true,
-            pago_movil_banco: true,  
-            pago_movil_cedula: true, 
             pago_movil_tel: true,
             paypal_client_id: true
           } 
@@ -92,9 +100,7 @@ router.get('/:id', async (req, res) => {
     });
 
     if (!transaccion) return res.status(404).json({ error: 'Transacción no encontrada.' });
-    if (transaccion.estado !== 'pendiente') return res.status(400).json({ error: 'Este pago ya fue procesado o cancelado.' });
 
-   
     const metodosDisponibles = {
       web3: !!transaccion.comercio.wallet_usdt,
       zelle: !!transaccion.comercio.zelle_email, 
@@ -104,40 +110,13 @@ router.get('/:id', async (req, res) => {
       binance: true 
     };
 
-    res.status(200).json({
-      ...transaccion,
-      metodosDisponibles
-    });
+    res.status(200).json({ ...transaccion, metodosDisponibles });
   } catch (error) {
-    res.status(500).json({ error: 'Error al cargar los datos del pago.' });
+    res.status(500).json({ error: 'Error al cargar checkout.' });
   }
 });
 
-// 3. Obtener Info de Billetera para Pago Cripto Web3
-router.get('/:id/crypto-info', async (req, res) => {
-  try {
-    const transaccion = await prisma.transaccion.findUnique({
-      where: { id: req.params.id },
-      include: { comercio: true }
-    });
-
-    if (!transaccion) return res.status(404).json({ error: 'Transacción no encontrada' });
-    
-    if (!transaccion.comercio.wallet_usdt) {
-      return res.status(400).json({ error: 'Esta tienda aún no acepta pagos en Criptomonedas directas.' });
-    }
-
-    res.status(200).json({
-      monto: transaccion.monto,
-      wallet: transaccion.comercio.wallet_usdt,
-      moneda: 'USDT (Red BSC - BEP20)'
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al generar la orden cripto' });
-  }
-});
-
-// 4. El Radar: Verificar si el pago llegó a la Blockchain
+// 3. Radar Web3 (Verificar Blockchain)
 router.post('/:id/verificar-crypto', async (req, res) => {
   try {
     const { id } = req.params;
@@ -146,80 +125,47 @@ router.post('/:id/verificar-crypto', async (req, res) => {
       include: { comercio: true }
     });
 
-    if (!transaccion || transaccion.estado !== 'pendiente') {
-      return res.status(400).json({ error: 'La transacción no es válida o ya fue procesada.' });
-    }
+    if (!transaccion || transaccion.estado !== 'pendiente') return res.status(400).json({ error: 'Invalido' });
 
-    const walletTienda = transaccion.comercio.wallet_usdt;
-    if (!walletTienda) return res.status(400).json({ error: 'La tienda no tiene una billetera configurada.' });
-
-  // 1. Conectar a la Binance Smart Chain (BSC) usando 1RPC (Público y sin bloqueos)
     const provider = new ethers.JsonRpcProvider('https://1rpc.io/bnb');
-
-    // 2. Conectar con el Contrato Inteligente de USDT en la red BSC
     const usdtAddress = '0x55d398326f99059fF775485246999027B3197955';
-    // Le enseñamos a Lumina a leer los "eventos" de transferencias
     const abi = ["event Transfer(address indexed from, address indexed to, uint256 value)"];
     const usdtContract = new ethers.Contract(usdtAddress, abi, provider);
-
-    // 3. Crear el Radar: Buscar transferencias que hayan llegado a la Wallet de la tienda
-    const filtro = usdtContract.filters.Transfer(null, walletTienda);
-    
-    // Escaneamos los últimos 100 bloques (aprox. los últimos 5 minutos de la blockchain)
+    const filtro = usdtContract.filters.Transfer(null, transaccion.comercio.wallet_usdt);
     const eventos = await usdtContract.queryFilter(filtro, -100);
 
-    // 4. Analizar los resultados
     let pagoDetectado = false;
     let hashTransaccion = "";
 
     for (let evento of eventos) {
-      // El dinero en la blockchain tiene 18 decimales. Lo formateamos a un número normal.
       const montoTransferido = ethers.formatUnits(evento.args[2], 18);
-      // Comparamos el monto de la blockchain con el monto que pide Lumina
       if (parseFloat(montoTransferido) === parseFloat(transaccion.monto)) {
         pagoDetectado = true;
-        hashTransaccion = evento.transactionHash; // Guardamos la prueba criptográfica
+        hashTransaccion = evento.transactionHash;
         break;
       }
     }
 
-    // 5. El Veredicto
     if (pagoDetectado) {
-      // Aprobamos el pago de forma automática y guardamos el Hash en la base de datos
-      await prisma.transaccion.update({
+      const transaccionAprobada = await prisma.transaccion.update({
         where: { id },
-        data: { 
-          estado: 'aprobado', 
-          metodo: 'web3',
-          referencia_cliente: hashTransaccion 
-        }
+        data: { estado: 'aprobado', metodo: 'web3', referencia_cliente: hashTransaccion },
+        include: { comercio: true }
       });
 
-      // ¡Aquí también podríamos disparar el Webhook para avisarle a Zahara Store!
-      if (transaccion.comercio.url_webhook) {
-        fetch(transaccion.comercio.url_webhook, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${transaccion.comercio.api_key}` },
-          body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
-        }).catch(e => console.log("Webhook enviado silenciosamente"));
-      }
+      // ACTIVACIÓN AUTOMÁTICA SI ES PLAN
+      await activarPlanSiEsSuscripcion(transaccionAprobada);
 
-      return res.status(200).json({ 
-        mensaje: '¡Pago detectado y verificado en la Blockchain!', 
-        hash: hashTransaccion 
-      });
+      return res.status(200).json({ mensaje: '¡Pago detectado!', hash: hashTransaccion });
     } else {
-      return res.status(400).json({ error: 'Aún no vemos el pago en la red. Si ya pagaste, espera 1 minuto y vuelve a verificar.' });
+      return res.status(400).json({ error: 'Pago no detectado aún.' });
     }
-
   } catch (error) {
-    console.error('Error del Radar Web3:', error);
-    res.status(500).json({ error: 'Error de conexión con la blockchain.' });
+    res.status(500).json({ error: 'Error de radar.' });
   }
 });
 
-
-// 5. Pago de Prueba (Sandbox)
+// 4. Pago Sandbox (Pruebas)
 router.post('/:id/pagar', async (req, res) => {
   try {
     const { id } = req.params;
@@ -231,85 +177,29 @@ router.post('/:id/pagar', async (req, res) => {
       include: { comercio: true }
     });
 
-    if (transaccion.comercio.url_webhook) {
-      try {
-        fetch(transaccion.comercio.url_webhook, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${transaccion.comercio.api_key}` },
-          body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
-        }).catch(() => console.log('Webhook disparado (sin esperar respuesta)'));
-      } catch (e) { console.error("Error disparando webhook", e); }
-    }
+    // ACTIVACIÓN AUTOMÁTICA SI ES PLAN
+    await activarPlanSiEsSuscripcion(transaccion);
 
-    res.status(200).json({ 
-      mensaje: 'Pago exitoso', 
-      urlExito: transaccion.urlExito || null 
-    });
-
+    res.status(200).json({ mensaje: 'Pago exitoso', urlExito: transaccion.urlExito });
   } catch (error) {
-    res.status(500).json({ error: 'Error al procesar el pago.' });
+    res.status(500).json({ error: 'Error procesando pago.' });
   }
 });
 
-// 6. Pago con Binance Pay
-router.post('/:id/binance', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const transaccion = await prisma.transaccion.findUnique({
-      where: { id: id }
-    });
-
-    if (!transaccion) return res.status(404).json({ error: 'Transacción no encontrada.' });
-    if (transaccion.estado !== 'pendiente') return res.status(400).json({ error: 'Este pago ya fue procesado.' });
-
-    const apiKey = process.env.BINANCE_API_KEY;
-    const apiSecret = process.env.BINANCE_SECRET_KEY;
-
-    if (!apiKey || apiKey === 'tu_api_key_de_binance_aqui') {
-      console.log("Simulando conexión con Binance Pay (Faltan llaves reales)...");
-      
-      await prisma.transaccion.update({
-        where: { id },
-        data: { metodo: 'binance_pay' }
-      });
-
-      return res.status(200).json({
-        mensaje: 'Orden creada en Binance (Simulación)',
-        checkoutUrl: 'https://pay.binance.com/es/checkout/dummy-url-para-pruebas',
-        tipo: 'simulacion'
-      });
-    }
-  } catch (error) {
-    console.error("Error al conectar con Binance:", error);
-    res.status(500).json({ error: 'Error al generar la orden en Binance.' });
-  }
-});
-
-// 7. Reportar pago manual (Zelle / Pago Móvil)
+// 5. Reportar Pago Manual (Zelle / Pago Móvil)
 router.post('/:id/reportar-manual', async (req, res) => {
   try {
     const { id } = req.params;
     const { metodo, referencia } = req.body;
 
-    const transaccion = await prisma.transaccion.findUnique({ where: { id } });
-    if (!transaccion || transaccion.estado !== 'pendiente') {
-      return res.status(400).json({ error: 'La transacción no es válida.' });
-    }
-
-    // Cambiamos el estado a "en_revision" (NO a aprobado todavía)
     await prisma.transaccion.update({
       where: { id },
-      data: {
-        estado: 'en_revision',
-        metodo: metodo,
-        referencia_cliente: referencia
-      }
+      data: { estado: 'en_revision', metodo, referencia_cliente: referencia }
     });
 
-    res.status(200).json({ mensaje: 'Pago reportado. Esperando confirmación de la tienda.' });
+    res.status(200).json({ mensaje: 'Pago reportado en revisión.' });
   } catch (error) {
-    res.status(500).json({ error: 'Error al reportar el pago.' });
+    res.status(500).json({ error: 'Error al reportar.' });
   }
 });
 

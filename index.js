@@ -294,27 +294,31 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
   try {
     const { estado } = req.body; 
     
+    // 1. Actualizamos la transacción
     const transaccion = await prisma.transaccion.update({
       where: { id: req.params.id },
       data: { estado: estado },
       include: { comercio: true }
     });
 
-    // LÓGICA AUTOMÁTICA DE SUSCRIPCIONES A LUMINA
-    if (estado === 'aprobado' && transaccion.descripcion && transaccion.descripcion.includes('Suscripción')) {
-      let nuevoPlan = 'starter';
+    // 2. 🚀 LÓGICA AUTOMÁTICA DE SUSCRIPCIONES (Actualizada con SUB-)
+    if (estado === 'aprobado' && transaccion.referenciaComercio?.startsWith('SUB-')) {
+      const partes = transaccion.referenciaComercio.split('-');
+      const idCliente = partes[1]; // Extraemos el ID del cliente
       const desc = transaccion.descripcion.toLowerCase();
       
+      let nuevoPlan = 'starter';
       if (desc.includes('pro')) nuevoPlan = 'pro';
-      if (desc.includes('business')) nuevoPlan = 'elite';
+      if (desc.includes('business')) nuevoPlan = 'business'; // O 'elite' si así está en tu BD
 
       await prisma.comercio.update({
-        where: { id: transaccion.comercioId },
+        where: { id: idCliente },
         data: { plan_actual: nuevoPlan }
       });
-      console.log(`[SaaS] Plan ${nuevoPlan.toUpperCase()} activado para: ${transaccion.comercio.nombre}`);
+      console.log(`✅ [SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
     }
 
+    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Para tiendas como Zahara)
     if (estado === 'aprobado' && transaccion.comercio.url_webhook) {
       fetch(transaccion.comercio.url_webhook, {
         method: 'POST',
@@ -328,6 +332,7 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
 
     res.status(200).json({ mensaje: `Transacción marcada como ${estado}` });
   } catch (error) {
+    console.error("Error en la actualización:", error);
     res.status(500).json({ error: 'Error al actualizar la transacción.' });
   }
 });
