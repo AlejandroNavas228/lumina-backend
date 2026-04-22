@@ -318,18 +318,23 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       console.log(`✅ [SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idCliente}`);
     }
 
-    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Para tiendas como Zahara)
+    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (A prueba de explosiones)
     if (estado === 'aprobado' && transaccion.comercio.url_webhook) {
-      fetch(transaccion.comercio.url_webhook, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'Authorization': `Bearer ${transaccion.comercio.api_key}` 
-        },
-        body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
-      }).catch(e => console.log("Webhook disparado en segundo plano"));
+      try {
+        // Envolvemos el webhook aquí para que, si el cliente pone una URL mala, no rompa el pago
+        fetch(transaccion.comercio.url_webhook, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${transaccion.comercio.api_key}` 
+          },
+          body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
+        }).catch(e => console.log("⚠️ El webhook falló (URL caída), pero el pago sí se aprobó."));
+      } catch (errorWebhook) {
+        console.log("⚠️ URL de Webhook inválida ignorada:", transaccion.comercio.url_webhook);
+      }
     }
-
+    
     res.status(200).json({ mensaje: `Transacción marcada como ${estado}` });
   } catch (error) {
     console.error("Error en la actualización:", error);
