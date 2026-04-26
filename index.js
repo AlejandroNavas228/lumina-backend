@@ -290,66 +290,52 @@ app.get('/api/pagos/:comercioId', verificarToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al buscar historial.' }); }
 });
 
-app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
+app.put('/api/pagos/:id/estado', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { estado } = req.body;
+
   try {
-    const { estado } = req.body; 
-    
-    // 1. Actualizamos la transacción
-    const transaccion = await prisma.transaccion.update({
-      where: { id: req.params.id },
-      data: { estado: estado },
-      include: { comercio: true }
+    // 1. Actualizamos el pago y traemos los datos del comercio de una vez
+    const pagoActualizado = await prisma.pago.update({
+      where: { id },
+      data: { estado },
+      include: {
+        comercio: true // Importante para sacar el telegram_chat_id
+      }
     });
 
-    // 2. 🚀 LÓGICA DE SUSCRIPCIONES (Al cliente correcto)
-    if (estado === 'aprobado' && transaccion.referenciaComercio && transaccion.referenciaComercio.startsWith('SUB-')) {
-      
-      // EXTRACCIÓN INTELIGENTE DEL ID (A prueba de guiones)
-      // Ejemplo de referencia: "SUB-123e4567-e89b-12d3-170000000"
-      const textoRef = transaccion.referenciaComercio;
-      const sinPrefijo = textoRef.replace('SUB-', ''); // Quitamos "SUB-"
-      const ultimoGuion = sinPrefijo.lastIndexOf('-'); // Buscamos dónde empieza la fecha
-      
-      // Cortamos justo hasta antes de la fecha. ¡Aquí tenemos el ID completo y real!
-      const idClienteReal = sinPrefijo.substring(0, ultimoGuion); 
-      
-      const desc = transaccion.descripcion ? transaccion.descripcion.toLowerCase() : '';
-      
-      let nuevoPlan = 'starter';
-      if (desc.includes('pro')) nuevoPlan = 'pro';
-      if (desc.includes('business')) nuevoPlan = 'business';
+    // 2. Si el pago es aprobado y el comercio tiene Telegram conectado
+    if (estado === 'aprobado' && pagoActualizado.comercio.telegram_chat_id) {
+      const tokenTelegram = process.env.TELEGRAM_TOKEN;
+      const chatId = pagoActualizado.comercio.telegram_chat_id;
 
-      // Ahora SÍ actualizamos al cliente que compró el plan
-      await prisma.comercio.update({
-        where: { id: idClienteReal },
-        data: { plan_actual: nuevoPlan }
-      });
-      console.log(`✅ [Lumina SaaS] Plan ${nuevoPlan.toUpperCase()} activado para cliente ID: ${idClienteReal}`);
+      const mensaje = `
+💰 <b>¡Venta Confirmada!</b>
+--------------------------
+📦 <b>Producto:</b> ${pagoActualizado.descripcion || 'Venta General'}
+💵 <b>Monto:</b> ${pagoActualizado.monto} ${pagoActualizado.moneda}
+💳 <b>Método:</b> ${pagoActualizado.metodo.toUpperCase()}
+🔍 <b>Ref:</b> <code>${pagoActualizado.referenciaComercio || pagoActualizado.id.slice(0, 8)}</code>
+
+<i>Lumina Pay - Procesamiento en tiempo real</i> 🚀
+      `;
+
+      // Disparo asíncrono a Telegram
+      fetch(`https://api.telegram.org/bot${tokenTelegram}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: mensaje,
+          parse_mode: 'HTML'
+        })
+      }).catch(err => console.error("Error enviando a Telegram:", err));
     }
 
-    // 3. 🛍️ NOTIFICACIÓN WEBHOOK (Dispara y Olvida)
-    if (estado === 'aprobado' && transaccion.comercio && transaccion.comercio.url_webhook) {
-      try {
-        new URL(transaccion.comercio.url_webhook); 
-        fetch(transaccion.comercio.url_webhook, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${transaccion.comercio.api_key}` 
-          },
-          body: JSON.stringify({ evento: 'pago_exitoso', data: transaccion })
-        }).catch(e => {}); // Silencioso si falla
-      } catch (errorUrl) {
-        console.log("⚠️ URL de webhook inválida. Se ignoró.");
-      }
-    }
-
-    // 4. Respondemos a tu página web INMEDIATAMENTE
-    return res.status(200).json({ mensaje: `Transacción marcada como ${estado}` });
-    
+    res.json(pagoActualizado);
   } catch (error) {
-    console.error("🔥 Error crítico en la actualización:", error);
-    return res.status(500).json({ error: 'Error al actualizar la transacción.' });
+    console.error(error);
+    res.status(500).json({ error: 'Error al actualizar el estado del pago' });
   }
 });
 
