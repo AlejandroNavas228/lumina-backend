@@ -267,16 +267,29 @@ app.put('/api/comercio/:id/config', verificarToken, async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al actualizar la configuración.' }); }
 });
 
-app.put('/api/comercio/:id/plan', verificarToken, async (req, res) => {
+app.put('/api/comercio/:id/config', verificarToken, async (req, res) => {
+  const { id } = req.params;
+  
+  // 💡 FILTRO DE SEGURIDAD: Solo extraemos los campos que queremos guardar
+  const { 
+    wallet_usdt, pago_movil_cedula, pago_movil_banco, 
+    pago_movil_tel, zelle_email, zinli_email, 
+    paypal_client_id, telegram_chat_id 
+  } = req.body;
+
   try {
-    const { plan } = req.body;
-    await prisma.comercio.update({
-      where: { id: req.params.id },
-      data: { plan_actual: plan }
+    const comercio = await prisma.comercio.update({
+      where: { id },
+      data: {
+        wallet_usdt, pago_movil_cedula, pago_movil_banco,
+        pago_movil_tel, zelle_email, zinli_email,
+        paypal_client_id, telegram_chat_id
+      }
     });
-    res.status(200).json({ mensaje: `¡Felicidades! Has cambiado al plan ${plan.toUpperCase()}` });
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al actualizar el plan.' }); 
+    res.json(comercio);
+  } catch (error) {
+    console.error("Error al guardar config:", error);
+    res.status(500).json({ error: 'No se pudo actualizar la configuración' });
   }
 });
 
