@@ -350,21 +350,21 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
       }
     }
 
-    // 4. 📱 NOTIFICACIÓN POR TELEGRAM
+   // 4. 📱 NOTIFICACIÓN POR TELEGRAM
     if (estado === 'aprobado' && transaccion.comercio.telegram_chat_id) {
       const tokenTelegram = process.env.TELEGRAM_TOKEN;
       const chatId = transaccion.comercio.telegram_chat_id;
 
       const mensaje = `
-💰 <b>¡Venta Confirmada!</b>
---------------------------
-📦 <b>Producto:</b> ${transaccion.descripcion || 'Venta General'}
-💵 <b>Monto:</b> ${transaccion.monto} ${transaccion.moneda}
-💳 <b>Método:</b> ${transaccion.metodo.toUpperCase()}
-🔍 <b>Ref:</b> <code>${transaccion.referenciaComercio || transaccion.id.slice(0, 8)}</code>
+      💰 <b>¡Venta Confirmada!</b>
+      --------------------------
+      📦 <b>Producto:</b> ${transaccion.descripcion || 'Venta General'}
+      💵 <b>Monto:</b> ${transaccion.monto} ${transaccion.moneda}
+      💳 <b>Método:</b> ${transaccion.metodo.toUpperCase()}
+      🔍 <b>Ref:</b> <code>${transaccion.referenciaComercio || transaccion.id.slice(0, 8)}</code>
 
-<i>Lumina Pay - Procesamiento en tiempo real</i> 🚀
-      `;
+      <i>Lumina Pay - Procesamiento en tiempo real</i> 🚀
+            `;
 
       fetch(`https://api.telegram.org/bot${tokenTelegram}/sendMessage`, {
         method: 'POST',
