@@ -93,6 +93,8 @@ router.get('/:id', async (req, res) => {
             zelle_email: true,
             zinli_email: true,
             pago_movil_tel: true,
+            pago_movil_banco: true,  
+            pago_movil_cedula: true,
             paypal_client_id: true
           } 
         } 
@@ -187,7 +189,7 @@ router.post('/:id/pagar', async (req, res) => {
 });
 
 // 5. Reportar Pago Manual (Zelle / Pago Móvil)
-router.post('/:id/reportar-manual', async (req, res) => {
+router.post('/:id/confirmar', async (req, res) => {
   try {
     const { id } = req.params;
     const { metodo, referencia } = req.body;

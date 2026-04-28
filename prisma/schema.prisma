@@ -18,7 +18,8 @@ model Comercio {
   url_webhook        String?
   verificado         Boolean       @default(false)
   codigoVerificacion String?
-  telegram_chat_id  String?
+  telegram_chat_id   String?
+  
   
   // ---> BÓVEDA WEB3 <---
   wallet_usdt        String?       
