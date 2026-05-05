@@ -134,6 +134,9 @@ app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     const comercio = await prisma.comercio.findUnique({ where: { email } });
 
+    console.log("Intentando iniciar sesión con:", email);
+    console.log("Contraseña recibida:", password);
+
     if (!comercio || !(await bcrypt.compare(password, comercio.password))) {
       return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
     }

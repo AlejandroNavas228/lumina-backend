@@ -82,6 +82,39 @@ router.post('/', verificarApiKey, async (req, res) => {
 
 // 2. Obtener datos para la pantalla de Checkout
 router.get('/:id', async (req, res) => {
+
+if (req.params.id === 'demo' || req.params.id === 'demo_preview') {
+    return res.status(200).json({
+      // Los datos de la transacción van "sueltos" (igual que en Prisma)
+      id: 'demo-1234',
+      descripcion: 'Suscripción Pro (Ejemplo Demo)',
+      monto: '10.00',
+      moneda: 'USD',
+      
+      // El comercio va como un objeto anidado
+      comercio: {
+        nombre: 'Tienda Lumina Demo',
+        pago_movil_banco: 'Banesco',
+        pago_movil_cedula: 'V-12345678',
+        pago_movil_tel: '0414-1234567',
+        zelle_email: 'demo@luminapay.xyz',
+        zinli_email: 'demo@luminapay.xyz',
+        wallet_usdt: '0x00000000000000000000',
+        paypal_client_id: 'test' 
+      },
+
+      // 💡 ¡FALTABA ESTO! El frontend necesita saber qué botones encender
+      metodosDisponibles: {
+        web3: true,
+        zelle: true, 
+        zinli: true,
+        pago_movil: true,
+        paypal: true,
+        binance: true 
+      }
+    });
+  }
+
   try {
     const transaccion = await prisma.transaccion.findUnique({
       where: { id: req.params.id },
@@ -190,6 +223,11 @@ router.post('/:id/pagar', async (req, res) => {
 
 // 5. Reportar Pago Manual (Zelle / Pago Móvil)
 router.post('/:id/confirmar', async (req, res) => {
+
+if (req.params.id === 'demo' || req.params.id === 'demo_preview') {
+    return res.status(200).json({ mensaje: 'Pago demo procesado con éxito' });
+  }
+
   try {
     const { id } = req.params;
     const { metodo, referencia } = req.body;
