@@ -370,6 +370,60 @@ app.put('/api/pagos/:id/estado', verificarToken, async (req, res) => {
 });
 
 // ==========================================
+// RUTA PARA EDITAR EL PERFIL DE USUARIO
+// ==========================================
+app.put('/api/comercio/:id/perfil', verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const { nombre, nuevaPassword } = req.body;
+
+  try {
+    if (req.comercio.id !== id) {
+      return res.status(403).json({ error: 'No tienes permiso para editar este perfil.' });
+    }
+
+    // 2. Preparamos los datos a actualizar
+    const datosActualizados = {};
+    
+    if (nombre) {
+      datosActualizados.nombre = nombre;
+    }
+
+    // 3. Si el usuario envió una nueva contraseña, la encriptamos antes de guardarla
+    if (nuevaPassword) {
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+      if (!passwordRegex.test(nuevaPassword)) {
+        return res.status(400).json({ error: 'La nueva contraseña es muy débil.' });
+      }
+      
+      const salt = await bcrypt.genSalt(10);
+      datosActualizados.password = await bcrypt.hash(nuevaPassword, salt);
+    }
+
+    // 4. Si no hay nada que actualizar, respondemos rápido
+    if (Object.keys(datosActualizados).length === 0) {
+      return res.status(400).json({ error: 'No se enviaron datos para actualizar.' });
+    }
+
+    // 5. Guardamos en la base de datos
+    const comercioActualizado = await prisma.comercio.update({
+      where: { id },
+      data: datosActualizados,
+      // 💡 IMPORTANTE: No devolvemos la contraseña en la respuesta
+      select: { id: true, nombre: true, email: true } 
+    });
+
+    res.status(200).json({ 
+      mensaje: 'Perfil actualizado con éxito', 
+      comercio: comercioActualizado 
+    });
+
+  } catch (error) {
+    console.error("Error al actualizar perfil:", error);
+    res.status(500).json({ error: 'Error al actualizar el perfil.' });
+  }
+});
+
+// ==========================================
 // 5. RUTAS DE LA PASARELA DE PAGOS
 // ==========================================
 app.use('/api/checkout', checkoutRoutes); 
