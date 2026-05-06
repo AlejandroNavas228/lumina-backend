@@ -221,7 +221,7 @@ app.post('/api/login/github', async (req, res) => {
       });
     }
 
-    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '10s' });
     res.status(200).json({
       mensaje: 'Login con GitHub exitoso', token: tokenLumina,
       comercio: { id: comercio.id, nombre: comercio.nombre, email: comercio.email }
