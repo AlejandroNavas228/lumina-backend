@@ -51,32 +51,42 @@ const verificarApiKey = async (req, res, next) => {
 // ==========================================
 
 // 1. Generar Link de Pago
-router.post('/', verificarApiKey, async (req, res) => { 
+router.post('/', verificarApiKey, async (req, res) => {
   try {
-    const { monto, moneda, descripcion, referenciaComercio, urlExito, urlCancelado, url_webhook } = req.body;
+    const { monto, descripcion, referenciaComercio, urlExito } = req.body;
     
+    // 1. Buscamos el comercio para saber su plan
+    const comercio = await prisma.comercio.findUnique({ where: { id: req.comercioId } });
+    if (!comercio) return res.status(404).json({ error: 'Comercio no encontrado.' });
+
+    // 2. 🛡️ SEGURIDAD: Si manda urlExito pero es plan starter, la eliminamos
+    let urlSegura = urlExito;
+    if (urlExito && comercio.plan_actual === 'starter') {
+      urlSegura = null; // No le permitimos guardar la URL
+    }
+
+    // 3. Creamos la transacción en la base de datos
     const nuevaTransaccion = await prisma.transaccion.create({
       data: {
-        monto,
-        moneda: moneda || 'USD',
+        monto: parseFloat(monto),
+        moneda: 'USD',
         descripcion,
         referenciaComercio,
-        urlExito,
-        urlCancelado,
+        urlExito: urlSegura, // Guardamos la url verificada
         estado: 'pendiente',
-        comercioId: req.comercioId,
-        metodo: 'sandbox' 
+        comercioId: req.comercioId
       }
     });
 
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.status(200).json({
-      exito: true,
-      url_pago: `${baseUrl}/checkout/${nuevaTransaccion.id}`,
-      transaccion_id: nuevaTransaccion.id
+    // 4. Respondemos con el link de pago
+    res.status(201).json({ 
+      mensaje: 'Link generado', 
+      url_pago: `${process.env.FRONTEND_URL}/checkout/${nuevaTransaccion.id}` 
     });
+
   } catch (error) {
-    res.status(500).json({ error: 'Error al generar link de pago.' });
+    console.error(error);
+    res.status(500).json({ error: 'Error al generar el checkout.' });
   }
 });
 
