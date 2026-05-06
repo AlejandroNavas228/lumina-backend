@@ -30,7 +30,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use('/api', checkoutRoutes);
+// 💡 CORRECCIÓN: Se eliminó la ruta duplicada del checkout que estaba aquí
 
 // ==========================================
 // 2. MIDDLEWARES DE SEGURIDAD
@@ -134,9 +134,6 @@ app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     const comercio = await prisma.comercio.findUnique({ where: { email } });
 
-    console.log("Intentando iniciar sesión con:", email);
-    console.log("Contraseña recibida:", password);
-
     if (!comercio || !(await bcrypt.compare(password, comercio.password))) {
       return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
     }
@@ -145,6 +142,7 @@ app.post('/api/login', async (req, res) => {
       return res.status(403).json({ error: 'Cuenta no verificada.', requiereVerificacion: true });
     }
 
+    
     const token = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
     res.status(200).json({
       mensaje: 'Login exitoso', token, 
@@ -223,7 +221,7 @@ app.post('/api/login/github', async (req, res) => {
       });
     }
 
-    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '10s' });
     res.status(200).json({
       mensaje: 'Login con GitHub exitoso', token: tokenLumina,
       comercio: { id: comercio.id, nombre: comercio.nombre, email: comercio.email }
@@ -245,37 +243,19 @@ app.get('/api/comercio/:id', verificarToken, async (req, res) => {
         id: true, nombre: true, email: true, api_key: true, url_webhook: true, 
         wallet_usdt: true, pago_movil_cedula: true, pago_movil_banco: true, 
         pago_movil_tel: true, zelle_email: true, zinli_email: true, paypal_client_id: true,
-        plan_actual: true, createdAt: true 
+        telegram_chat_id: true, plan_actual: true, createdAt: true 
       }
     });
     res.status(200).json(comercio);
   } catch (error) { res.status(500).json({ error: 'Error al buscar el comercio.' }); }
 });
 
-app.put('/api/comercio/:id/config', verificarToken, async (req, res) => {
-  try {
-    const { 
-      url_webhook, wallet_usdt, pago_movil_cedula, pago_movil_banco, 
-      pago_movil_tel, zelle_email, zinli_email, paypal_client_id 
-    } = req.body;
-    
-    await prisma.comercio.update({
-      where: { id: req.params.id },
-      data: { 
-        url_webhook, wallet_usdt, pago_movil_cedula, pago_movil_banco, 
-        pago_movil_tel, zelle_email, zinli_email, paypal_client_id
-      }
-    });
-    res.status(200).json({ mensaje: 'Configuración guardada exitosamente' });
-  } catch (error) { res.status(500).json({ error: 'Error al actualizar la configuración.' }); }
-});
-
+// 💡 CORRECCIÓN: Rutas PUT fusionadas para guardar TODOS los datos (incluyendo Telegram)
 app.put('/api/comercio/:id/config', verificarToken, async (req, res) => {
   const { id } = req.params;
   
-  // 💡 FILTRO DE SEGURIDAD: Solo extraemos los campos que queremos guardar
   const { 
-    wallet_usdt, pago_movil_cedula, pago_movil_banco, 
+    url_webhook, wallet_usdt, pago_movil_cedula, pago_movil_banco, 
     pago_movil_tel, zelle_email, zinli_email, 
     paypal_client_id, telegram_chat_id 
   } = req.body;
@@ -284,12 +264,12 @@ app.put('/api/comercio/:id/config', verificarToken, async (req, res) => {
     const comercio = await prisma.comercio.update({
       where: { id },
       data: {
-        wallet_usdt, pago_movil_cedula, pago_movil_banco,
+        url_webhook, wallet_usdt, pago_movil_cedula, pago_movil_banco,
         pago_movil_tel, zelle_email, zinli_email,
         paypal_client_id, telegram_chat_id
       }
     });
-    res.json(comercio);
+    res.status(200).json({ mensaje: 'Configuración guardada exitosamente', comercio });
   } catch (error) {
     console.error("Error al guardar config:", error);
     res.status(500).json({ error: 'No se pudo actualizar la configuración' });
