@@ -73,7 +73,8 @@ app.post('/api/registro', async (req, res) => {
   
   if (!passwordRegex.test(req.body.password)) {
     return res.status(400).json({ error: 'Contraseña muy débil o con caracteres no permitidos.' });
-  } 
+  }
+
   try {
     const { comercio, email, password } = req.body;
     
@@ -391,7 +392,7 @@ app.put('/api/comercio/:id/perfil', verificarToken, async (req, res) => {
 
     // 3. Si el usuario envió una nueva contraseña, la encriptamos antes de guardarla
     if (nuevaPassword) {
-      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
       if (!passwordRegex.test(nuevaPassword)) {
         return res.status(400).json({ error: 'La nueva contraseña es muy débil.' });
       }
@@ -487,7 +488,83 @@ app.put('/api/admin/comercios/:id/plan', verificarToken, verificarSuperAdmin, as
 });
 
 // ==========================================
-// 7. ESTADO DEL SERVIDOR
+// 7. RUTAS DE RECUPERACIÓN DE CONTRASEÑA
+// ==========================================
+
+// 📩 Paso 1: Solicitar código de recuperación
+app.post('/api/recuperar-password', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const comercio = await prisma.comercio.findUnique({ where: { email } });
+    
+    // Por seguridad, no revelamos si el correo existe o no, pero damos mensaje de éxito
+    if (!comercio) {
+      return res.status(200).json({ mensaje: 'Si el correo existe, recibirás un código pronto.' });
+    }
+
+    const codigoOTP = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    await prisma.comercio.update({
+      where: { email },
+      data: { codigoVerificacion: codigoOTP }
+    });
+
+    try {
+      await resend.emails.send({
+        from: 'Lumina Pay <soporte@luminapay.xyz>', 
+        to: email,
+        subject: '🔐 Recuperación de Contraseña - Lumina Pay',
+        html: `
+          <h2>Recuperación de cuenta</h2>
+          <p>Hola ${comercio.nombre},</p>
+          <p>Tu código de seguridad para restablecer tu contraseña es: <strong>${codigoOTP}</strong></p>
+          <p>Si no solicitaste este cambio, ignora este correo. Tu cuenta está segura.</p>
+        `
+      });
+    } catch (e) { console.error("Error silencioso al enviar correo de recuperación."); }
+
+    res.status(200).json({ mensaje: 'Código enviado al correo.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// 🔑 Paso 2: Validar código y crear nueva contraseña
+app.post('/api/reset-password', async (req, res) => {
+  const { email, codigo, nuevaPassword } = req.body;
+
+  try {
+    const comercio = await prisma.comercio.findUnique({ where: { email } });
+    
+    if (!comercio || comercio.codigoVerificacion !== codigo) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    // Usamos la Regex relajada para que no te dé problemas con caracteres especiales
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+    if (!passwordRegex.test(nuevaPassword)) {
+      return res.status(400).json({ error: 'La contraseña debe tener 8 caracteres, mayúscula, minúscula, número y símbolo.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordEncriptada = await bcrypt.hash(nuevaPassword, salt);
+
+    await prisma.comercio.update({
+      where: { email },
+      data: { 
+        password: passwordEncriptada,
+        codigoVerificacion: null // Destruimos el código para que no se re-use
+      }
+    });
+
+    res.status(200).json({ mensaje: 'Contraseña actualizada con éxito.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al restablecer la contraseña.' });
+  }
+});
+
+// ==========================================
+//  ESTADO DEL SERVIDOR
 // ==========================================
 app.get('/api/status', (req, res) => { res.json({ empresa: 'Lumina', estado: 'Activo' }); });
 
