@@ -572,6 +572,56 @@ app.post('/api/reset-password', async (req, res) => {
 });
 
 // ==========================================
+// 9. RUTAS DE SUSCRIPCIÓN (COMPRAR PLANES)
+// ==========================================
+
+app.post('/api/suscripcion/generar', verificarToken, async (req, res) => {
+  const { plan } = req.body; // Recibimos si quiere 'pro' o 'business'
+
+  let monto = 0;
+  let descripcion = '';
+
+  // Definimos los precios oficiales de Lumina
+  if (plan === 'pro') {
+    monto = 9.99;
+    descripcion = 'Suscripción Mensual - Plan PRO Lumina';
+  } else if (plan === 'business') {
+    monto = 29.99;
+    descripcion = 'Suscripción Mensual - Plan BUSINESS Lumina';
+  } else {
+    return res.status(400).json({ error: 'Plan no válido.' });
+  }
+
+  try {
+    // 💡 LA MAGIA: Creamos la referencia especial que el sistema reconocerá luego
+    const referenciaEspecial = `SUB-${plan.toUpperCase()}-${req.comercio.id}-${Date.now()}`;
+
+    // Creamos la transacción. (Para el MVP, la asignamos al mismo comercio para que tú 
+    // como cliente puedas ver cómo funciona tu propio link de cobro)
+    const nuevaSuscripcion = await prisma.transaccion.create({
+      data: {
+        monto: parseFloat(monto),
+        moneda: 'USD',
+        descripcion: descripcion,
+        referenciaComercio: referenciaEspecial,
+        estado: 'pendiente',
+        comercioId: req.comercio.id,
+        urlExito: `${process.env.FRONTEND_URL}/dashboard` // Lo devolvemos al panel al terminar
+      }
+    });
+
+    // Le respondemos al frontend con el link de pago generado
+    res.status(200).json({
+      url_pago: `${process.env.FRONTEND_URL}/checkout/${nuevaSuscripcion.id}`
+    });
+
+  } catch (error) {
+    console.error("Error generando suscripción:", error);
+    res.status(500).json({ error: 'Error al generar la pasarela de pago.' });
+  }
+});
+
+// ==========================================
 //  ESTADO DEL SERVIDOR
 // ==========================================
 app.get('/api/status', (req, res) => { res.json({ empresa: 'Lumina', estado: 'Activo' }); });
