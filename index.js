@@ -576,7 +576,7 @@ app.post('/api/reset-password', async (req, res) => {
 // ==========================================
 
 app.post('/api/suscripcion/generar', verificarToken, async (req, res) => {
-  const { plan } = req.body; // Recibimos si quiere 'pro' o 'business'
+  const { plan } = req.body; 
 
   let monto = 0;
   let descripcion = '';
@@ -606,7 +606,7 @@ app.post('/api/suscripcion/generar', verificarToken, async (req, res) => {
         referenciaComercio: referenciaEspecial,
         estado: 'pendiente',
         comercioId: req.comercio.id,
-        urlExito: `${process.env.FRONTEND_URL}/dashboard` // Lo devolvemos al panel al terminar
+        urlExito: `${process.env.FRONTEND_URL}/dashboard` 
       }
     });
 
