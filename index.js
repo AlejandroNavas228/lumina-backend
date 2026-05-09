@@ -69,10 +69,10 @@ const verificarApiKey = async (req, res, next) => {
 // ==========================================
 
 app.post('/api/registro', async (req, res) => {
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+ const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+  
   if (!passwordRegex.test(req.body.password)) {
-    return res.status(400).json({ error: 'Contraseña muy débil.' });
-  }
+    return res.status(400).json({ error: 'Contraseña muy débil o con caracteres no permitidos.' });
 
   try {
     const { comercio, email, password } = req.body;
