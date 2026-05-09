@@ -428,8 +428,65 @@ app.put('/api/comercio/:id/perfil', verificarToken, async (req, res) => {
 // ==========================================
 app.use('/api/checkout', checkoutRoutes); 
 
+
 // ==========================================
-// 6. ESTADO DEL SERVIDOR
+// 6. RUTAS DE SÚPER ADMINISTRADOR (CENTRO DE MANDO)
+// ==========================================
+
+// 🛡️ GUARDIÁN: Solo el dueño de Lumina puede pasar
+const verificarSuperAdmin = async (req, res, next) => {
+  try {
+    const admin = await prisma.comercio.findUnique({ where: { id: req.comercio.id } });
+    
+    const miCorreoAdmin = process.env.ADMIN_EMAIL; 
+
+    if (admin.email !== miCorreoAdmin) {
+      return res.status(403).json({ error: 'Acceso denegado. Solo el CEO puede entrar aquí.' });
+    }
+    next();
+  } catch (error) {
+    res.status(500).json({ error: 'Error verificando permisos de administrador.' });
+  }
+};
+
+// 👑 RUTA 1: Ver a todos los clientes registrados
+app.get('/api/admin/comercios', verificarToken, verificarSuperAdmin, async (req, res) => {
+  try {
+    const comercios = await prisma.comercio.findMany({
+      select: {
+        id: true, 
+        nombre: true, 
+        email: true, 
+        plan_actual: true, 
+        verificado: true, 
+        createdAt: true
+      },
+      orderBy: { createdAt: 'desc' } // Los más nuevos primero
+    });
+    res.status(200).json(comercios);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener la lista de clientes.' });
+  }
+});
+
+// 👑 RUTA 2: Cambiar el plan de un cliente manualmente
+app.put('/api/admin/comercios/:id/plan', verificarToken, verificarSuperAdmin, async (req, res) => {
+  try {
+    const { nuevoPlan } = req.body; // Puede ser 'starter', 'pro' o 'business'
+    
+    await prisma.comercio.update({
+      where: { id: req.params.id },
+      data: { plan_actual: nuevoPlan }
+    });
+    
+    res.status(200).json({ mensaje: `Plan del usuario actualizado a ${nuevoPlan.toUpperCase()}` });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar el plan en la base de datos.' });
+  }
+});
+
+// ==========================================
+// 7. ESTADO DEL SERVIDOR
 // ==========================================
 app.get('/api/status', (req, res) => { res.json({ empresa: 'Lumina', estado: 'Activo' }); });
 
