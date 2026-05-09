@@ -440,16 +440,22 @@ const verificarSuperAdmin = async (req, res, next) => {
   try {
     const admin = await prisma.comercio.findUnique({ where: { id: req.comercio.id } });
     
-    const miCorreoAdmin = process.env.ADMIN_EMAIL?.toLowerCase(); 
-    const correoUsuario = admin.email?.toLowerCase();
+    const miCorreoAdmin = process.env.ADMIN_EMAIL?.trim().toLowerCase(); 
+    const correoUsuario = admin.email?.trim().toLowerCase();
+
+    // 💡 ESTO ES CLAVE: Mira tu terminal de Render o VS Code cuando intentes entrar
+    console.log("--- INTENTO DE ACCESO ADMIN ---");
+    console.log("Correo en base de datos:", `|${correoUsuario}|`);
+    console.log("Correo en variable ENV:", `|${miCorreoAdmin}|`);
+    console.log("¿Coinciden?:", correoUsuario === miCorreoAdmin);
 
     if (correoUsuario !== miCorreoAdmin) {
-      console.log(`🚫 Intento de acceso admin fallido de: ${correoUsuario}`);
       return res.status(403).json({ error: 'Acceso denegado. Solo el CEO puede entrar aquí.' });
     }
     next();
   } catch (error) {
-    res.status(500).json({ error: 'Error verificando permisos de administrador.' });
+    console.error("Error en verificarSuperAdmin:", error);
+    res.status(500).json({ error: 'Error verificando permisos.' });
   }
 };
 
