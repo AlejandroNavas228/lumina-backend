@@ -435,14 +435,16 @@ app.use('/api/checkout', checkoutRoutes);
 // 6. RUTAS DE SÚPER ADMINISTRADOR (CENTRO DE MANDO)
 // ==========================================
 
-// 🛡️ GUARDIÁN: Solo el dueño de Lumina puede pasar
+// 🛡️ GUARDIÁN: Ahora es insensible a mayúsculas/minúsculas
 const verificarSuperAdmin = async (req, res, next) => {
   try {
     const admin = await prisma.comercio.findUnique({ where: { id: req.comercio.id } });
     
-    const miCorreoAdmin = process.env.ADMIN_EMAIL; 
+    const miCorreoAdmin = process.env.ADMIN_EMAIL?.toLowerCase(); 
+    const correoUsuario = admin.email?.toLowerCase();
 
-    if (admin.email !== miCorreoAdmin) {
+    if (correoUsuario !== miCorreoAdmin) {
+      console.log(`🚫 Intento de acceso admin fallido de: ${correoUsuario}`);
       return res.status(403).json({ error: 'Acceso denegado. Solo el CEO puede entrar aquí.' });
     }
     next();
