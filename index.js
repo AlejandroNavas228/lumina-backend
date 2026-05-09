@@ -73,7 +73,7 @@ app.post('/api/registro', async (req, res) => {
   
   if (!passwordRegex.test(req.body.password)) {
     return res.status(400).json({ error: 'Contraseña muy débil o con caracteres no permitidos.' });
-
+  } 
   try {
     const { comercio, email, password } = req.body;
     
@@ -107,7 +107,8 @@ app.post('/api/registro', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Error interno al registrar el comercio.' });
   }
-});
+}); 
+
 
 app.post('/api/verificar', async (req, res) => {
   try {
