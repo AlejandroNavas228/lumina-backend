@@ -130,6 +130,47 @@ app.post('/api/verificar', async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al verificar la cuenta.' }); }
 });
 
+app.post('/api/comercio/:id/probar-webhook', verificarToken, async (req, res) => {
+  try {
+    const { webhookUrl } = req.body;
+    if (!webhookUrl) return res.status(400).json({ error: 'URL requerida' });
+
+    // Obtenemos la API Key del comercio para simular la seguridad
+    const comercio = await prisma.comercio.findUnique({ where: { id: req.params.id } });
+
+    const datosDePrueba = {
+      evento: 'pago_exitoso',
+      data: {
+        id: `test_${Math.floor(Math.random() * 10000)}`,
+        monto: 25.50,
+        moneda: 'USD',
+        estado: 'aprobado',
+        referenciaComercio: 'TEST-WEBHOOK-001',
+        descripcion: 'Transacción de prueba de conexión desde Servidor Lumina',
+        fecha: new Date().toISOString()
+      }
+    };
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${comercio.api_key}`
+      },
+      body: JSON.stringify(datosDePrueba)
+    });
+
+    if (response.ok) {
+      res.status(200).json({ mensaje: '¡Conexión Exitosa!' });
+    } else {
+      res.status(400).json({ error: `El servidor destino rechazó la prueba (Status: ${response.status})` });
+    }
+  } catch (error) {
+    console.error("Error probando webhook:", error.message);
+    res.status(500).json({ error: 'El servidor destino no existe o no es alcanzable.' });
+  }
+});
+
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
