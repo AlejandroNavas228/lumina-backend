@@ -188,8 +188,6 @@ app.post('/api/login', async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al iniciar sesión.' }); }
 });
 
-// (Omití los logins de Google y Github por limpieza, asumo que ya los tienes controlados, si los necesitas déjalos igual).
-
 app.post('/api/recuperar-password', async (req, res) => {
   try {
     const comercio = await prisma.comercio.findUnique({ where: { email: req.body.email } });
