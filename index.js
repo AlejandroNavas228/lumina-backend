@@ -185,6 +185,132 @@ app.post('/api/reset-password', async (req, res) => {
 });
 
 // ==========================================
+// ACCESOS SOCIALES (GOOGLE Y GITHUB)
+// ==========================================
+
+// 🔵 Inicio de sesión con Google
+app.post('/api/login/google', async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    // Verificamos el token directamente con los servidores de Google
+    const ticket = await clienteGoogle.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const { email, name } = payload;
+
+    // Buscamos si el usuario ya existe en tu base de datos
+    let comercio = await prisma.comercio.findUnique({ where: { email } });
+
+    // Si no existe, lo creamos automáticamente (sin pedirle contraseña)
+    if (!comercio) {
+      const salt = await bcrypt.genSalt(10);
+      const passwordAleatoria = await bcrypt.hash(Math.random().toString(36).slice(-12), salt);
+      
+      comercio = await prisma.comercio.create({
+        data: {
+          nombre: name,
+          email: email,
+          password: passwordAleatoria, // Contraseña aleatoria por seguridad
+          verificado: true, // Google ya verificó el correo
+          api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
+        }
+      });
+    }
+
+    // Generamos el token de Lumina
+    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    res.status(200).json({ 
+      mensaje: 'Login con Google exitoso', 
+      token: tokenLumina, 
+      comercio: { id: comercio.id, nombre: comercio.nombre, email: comercio.email } 
+    });
+
+  } catch (error) {
+    console.error("Error en login con Google:", error);
+    res.status(500).json({ error: 'Error al iniciar sesión con Google.' });
+  }
+});
+
+// 🐙 Inicio de sesión con GitHub
+app.post('/api/login/github', async (req, res) => {
+  try {
+    const { code } = req.body; // El frontend nos manda el código temporal
+    
+    // 1. Intercambiamos el código por un Token de Acceso de GitHub
+    const githubTokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code: code
+      })
+    });
+    
+    const tokenData = await githubTokenRes.json();
+    
+    if (!tokenData.access_token) {
+      return res.status(400).json({ error: 'Código de GitHub inválido o expirado.' });
+    }
+
+    // 2. Pedimos los datos del perfil del usuario
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
+    });
+    const userData = await userRes.json();
+
+    // 3. Pedimos los correos (porque a veces el correo principal está oculto)
+    const emailsRes = await fetch('https://api.github.com/user/emails', {
+      headers: { 'Authorization': `Bearer ${tokenData.access_token}` }
+    });
+    const emailsData = await emailsRes.json();
+    
+    // Buscamos el correo principal verificado
+    const primaryEmail = emailsData.find(e => e.primary && e.verified)?.email || emailsData[0]?.email;
+
+    if (!primaryEmail) {
+      return res.status(400).json({ error: 'Tu cuenta de GitHub debe tener un correo válido.' });
+    }
+
+    // 4. Verificamos o creamos la cuenta en Lumina
+    let comercio = await prisma.comercio.findUnique({ where: { email: primaryEmail } });
+
+    if (!comercio) {
+      const salt = await bcrypt.genSalt(10);
+      const passwordAleatoria = await bcrypt.hash(Math.random().toString(36).slice(-12), salt);
+      
+      comercio = await prisma.comercio.create({
+        data: {
+          nombre: userData.name || userData.login, // Usamos su nombre o su username
+          email: primaryEmail,
+          password: passwordAleatoria,
+          verificado: true,
+          api_key: `zp_live_${Math.random().toString(36).substring(2, 15)}`
+        }
+      });
+    }
+
+    const tokenLumina = jwt.sign({ id: comercio.id }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    res.status(200).json({ 
+      mensaje: 'Login con GitHub exitoso', 
+      token: tokenLumina, 
+      comercio: { id: comercio.id, nombre: comercio.nombre, email: comercio.email } 
+    });
+
+  } catch (error) {
+    console.error("Error en login con GitHub:", error);
+    res.status(500).json({ error: 'Error al iniciar sesión con GitHub.' });
+  }
+});
+
+// ==========================================
 // 4. RUTAS DEL PANEL DEL COMERCIO Y PAGOS
 // ==========================================
 
